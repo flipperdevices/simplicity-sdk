@@ -99,8 +99,9 @@
   || defined(SL_CATALOG_ZIGBEE_PRO_ROUTER_STACK_PRESENT)                 \
   || defined(SL_CATALOG_ZIGBEE_PRO_STACK_WITH_HIGH_DATARATE_PHY_RAIL_MUX)
 #include "sl_zigbee_pro_stack_config.h"
+#elif defined(SL_CATALOG_ZIGBEE_PRO_LEAF_STACK_WITH_CSL_PRESENT)
+#include "sl_zigbee_pro_leaf_stack_with_csl_config.h"
 #elif defined(SL_CATALOG_ZIGBEE_PRO_LEAF_STACK_PRESENT)         \
-  || defined(SL_CATALOG_ZIGBEE_PRO_LEAF_STACK_WITH_CSL_PRESENT) \
   || defined(SL_CATALOG_ZIGBEE_PRO_LEAF_STACK_MAC_TEST_CMDS_PRESENT)
 #include "sl_zigbee_pro_leaf_stack_config.h"
 #elif defined(SL_ZIGBEE_SCRIPTED_TEST) || defined(ZAPTEST) || defined(IMAGE_BUILDER) || defined(SLI_ZIGBEE_LIBRARY_BUILD) || defined(EZSP_HOST) || defined(RAIL_MAKE_TEST)
@@ -325,8 +326,9 @@
 #ifndef SL_ZIGBEE_NEIGHBOR_TABLE_SIZE
   #define SL_ZIGBEE_NEIGHBOR_TABLE_SIZE 16
 #endif
-#if (SL_ZIGBEE_NEIGHBOR_TABLE_SIZE != SL_ZIGBEE_MAX_NEIGHBOR_TABLE_SIZE) && (SL_ZIGBEE_NEIGHBOR_TABLE_SIZE != 16) && (SL_ZIGBEE_NEIGHBOR_TABLE_SIZE != 1)
-  #error "Unsupported neighbor table size is configured. Supported values are 1, 16 and 26."
+#if !((SL_ZIGBEE_NEIGHBOR_TABLE_SIZE == 1)                                                     \
+  || ((SL_ZIGBEE_NEIGHBOR_TABLE_SIZE >= 16) && (SL_ZIGBEE_NEIGHBOR_TABLE_SIZE <= SL_ZIGBEE_MAX_NEIGHBOR_TABLE_SIZE)))
+  #error "Unsupported neighbor table size is configured. Supported values are 1, or 16 through 26."
 #endif
 /** @brief The maximum amount of time (in milliseconds) that the MAC
  * will hold a message for indirect transmission to a child.
@@ -342,6 +344,17 @@
 #if (SL_ZIGBEE_INDIRECT_TRANSMISSION_TIMEOUT \
      > SL_ZIGBEE_MAX_INDIRECT_TRANSMISSION_TIMEOUT)
   #error "Indirect transmission timeout too large."
+#endif
+
+/** @brief The extra milliseconds added to the APS ACK timeout when APS retry is enabled for
+ * extended-timeout (sleepy) destinations.
+ */
+#ifndef SL_ZIGBEE_SLEEPY_TARGET_MAC_TIMEOUT_INCREASE
+#if (SL_ZIGBEE_STACK_PROFILE == 2)
+  #define SL_ZIGBEE_SLEEPY_TARGET_MAC_TIMEOUT_INCREASE 7680
+#else
+  #define SL_ZIGBEE_SLEEPY_TARGET_MAC_TIMEOUT_INCREASE 3000
+#endif
 #endif
 
 /** @brief Define the behavior for the address that the multicasts are sent to.
@@ -770,9 +783,8 @@
 #endif
 
 //Allows the aps acks for APSME commands to be turned off or on
-//This should be "true" by default but to keep it consistend with the current stack behaviour this is "false" by default.
 #ifndef SL_ZIGBEE_ENABLE_APS_ACKS_FOR_COMMANDS
-  #define SL_ZIGBEE_ENABLE_APS_ACKS_FOR_COMMANDS (false)
+  #define SL_ZIGBEE_ENABLE_APS_ACKS_FOR_COMMANDS (true)
 #endif
 
 #ifndef SL_ZIGBEE_CUSTOM_MAC_FILTER_TABLE_SIZE

@@ -74,6 +74,7 @@ include:
   - path: "ZW_slave_api.h"
   - path: "ZW_UserTask.h"
   - path: "ZW_classcmd.h"
+  - path: "ZW_wake_on_critical_message.h"
 - path: "dist/include/zpal"
   file_list:
   - path: "zpal_bootloader.h"
@@ -156,4 +157,6 @@ config_file:
   file_id: config_rf
 - path: sample_apps/config/zw_hardware/zw_hardware_config.h
   file_id: zw_hardware_config
+- path: sample_apps/config/zw_dtpa_config.h
+  file_id: zw_dtpa_config
 root_path: zwave

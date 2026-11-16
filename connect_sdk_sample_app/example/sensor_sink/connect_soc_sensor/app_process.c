@@ -31,14 +31,15 @@
 // -----------------------------------------------------------------------------
 //                                   Includes
 // -----------------------------------------------------------------------------
+#include <inttypes.h>
 #include PLATFORM_HEADER
+#include <inttypes.h>
 #include "sl_component_catalog.h"
 #include "stack/include/ember.h"
 #include "em_system.h"
 #include "app_log.h"
-#ifdef SL_CATALOG_SI70XX_DRIVER_PRESENT
-#include "sl_si70xx.h"
-#include "sl_i2cspm_instances.h"
+#if defined(SL_CATALOG_RHT_UNIDRIVER_DRIVER_PRESENT)
+#include "sl_rht_unidriver.h"
 #endif
 #include "poll.h"
 #include "sl_app_common.h"
@@ -112,14 +113,11 @@ void report_handler(void)
 
     // Sample temperature and humidity from sensors.
     // Temperature is sampled in "millicelsius".
-    #ifndef UNIX_HOST
-    #ifdef SL_CATALOG_SI70XX_DRIVER_PRESENT
-    if (sl_si70xx_measure_rh_and_temp(sl_i2cspm_sensor,
-                                      SI7021_ADDR,
-                                      &rh_data,
-                                      &temp_data)) {
-      sensor_status = EMBER_ERR_FATAL;
-      app_log_info("Warning! Invalid Si7021 reading: %lu %ld\n", rh_data, temp_data);
+  #ifndef UNIX_HOST
+    #if defined(SL_CATALOG_RHT_UNIDRIVER_DRIVER_PRESENT)
+    sl_status_t sl_status = sl_rht_unidriver_measure_rh_and_temp(&rh_data, &temp_data);
+    if (SL_STATUS_OK != sl_status) {
+      app_log_error("Invalid sensor reading: 0x%08" PRIX32 "\n", sl_status);
     }
     #else
     rh_data += 100;
@@ -129,7 +127,7 @@ void report_handler(void)
       rh_data = 55000;
     }
     #endif
-    #endif
+  #endif
     if (sensor_status == EMBER_SUCCESS) {
       emberStoreLowHighInt32u(buffer, temp_data);
       emberStoreLowHighInt32u(buffer + 4, rh_data);
@@ -141,11 +139,11 @@ void report_handler(void)
                                 buffer,
                                 tx_options);
 
-      app_log_info("TX: Data to 0x%04X:", sink_node_id);
+      app_log_info("TX: Data to 0x%04" PRIX16 ":", sink_node_id);
       for (uint8_t i = 0; i < SL_SENSOR_SINK_DATA_LENGTH; i++) {
-        app_log_info(" %02X", buffer[i]);
+        app_log_info(" %02" PRIX8, buffer[i]);
       }
-      app_log_info(": 0x%02X\n", status);
+      app_log_info(": 0x%02" PRIX8 "\n", status);
       emberEventControlSetDelayMS(*report_control, sensor_report_period_ms);
     }
   }
@@ -168,9 +166,9 @@ bool emberAfCommonOkToEnterLowPowerCallback(bool enter_em2, uint32_t duration_ms
 void emberAfIncomingMessageCallback(EmberIncomingMessage *message)
 {
   if (message->endpoint == SL_SENSOR_SINK_ENDPOINT) {
-    app_log_info("RX: Data from 0x%04X:", message->source);
+    app_log_info("RX: Data from 0x%04" PRIX16 ":", message->source);
     for (uint8_t i = SL_SENSOR_SINK_DATA_OFFSET; i < message->length; i++) {
-      app_log_info(" %x", message->payload[i]);
+      app_log_info(" %" PRIX8, message->payload[i]);
     }
     app_log_info("\n");
   }
@@ -185,7 +183,7 @@ void emberAfMessageSentCallback(EmberStatus status,
 {
   (void) message;
   if (status != EMBER_SUCCESS) {
-    app_log_info("TX: 0x%02X\n", status);
+    app_log_info("TX: 0x%02" PRIX8 "\n", status);
   }
 }
 
@@ -197,7 +195,7 @@ void emberAfStackStatusCallback(EmberStatus status)
   switch (status) {
     case EMBER_NETWORK_UP:
       app_log_info("Network up\n");
-      app_log_info("Joined to Sink with node ID: 0x%04X\n", emberGetNodeId());
+      app_log_info("Joined to Sink with node ID: 0x%04" PRIX16 "\n", emberGetNodeId());
       // Schedule start of periodic sensor reporting to the Sink
       emberEventControlSetDelayMS(*report_control, sensor_report_period_ms);
       break;
@@ -214,7 +212,7 @@ void emberAfStackStatusCallback(EmberStatus status)
       app_log_info("Join process timed out!\n");
       break;
     default:
-      app_log_info("Stack status: 0x%02X\n", status);
+      app_log_info("Stack status: 0x%02" PRIX8 "\n", status);
       break;
   }
 }
@@ -241,7 +239,7 @@ void emberAfTickCallback(void)
 void emberAfFrequencyHoppingStartClientCompleteCallback(EmberStatus status)
 {
   if (status != EMBER_SUCCESS) {
-    app_log_error("FH Client sync failed, status=0x%02X\n", status);
+    app_log_error("FH Client sync failed, status=0x%02" PRIX8 "\n", status);
   } else {
     app_log_info("FH Client Sync Success\n");
   }
@@ -255,7 +253,7 @@ void emberAfEnergyScanCompleteCallback(int8_t mean,
                                        int8_t max,
                                        uint16_t variance)
 {
-  app_log_info("Energy scan complete, mean=%d min=%d max=%d var=%d\n",
+  app_log_info("Energy scan complete, mean=%" PRId8 " min=%" PRId8 " max=%" PRId8 " var=%" PRIu16 "\n",
                mean, min, max, variance);
 }
 

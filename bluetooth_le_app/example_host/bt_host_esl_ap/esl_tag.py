@@ -28,7 +28,6 @@ from collections import namedtuple
 from datetime import datetime as dt
 from image_converter import XbmConverter
 from ap_constants import (
-    AUX_SYNC_IND_PDU_MAX_SKIP_COUNT,
     BASIC_STATE_FLAG_SERVICE_NEEDED,
     BASIC_STATE_FLAG_SYNCHRONIZED,
     BASIC_STATE_STRINGS,
@@ -74,8 +73,8 @@ class ImageTypeRequired(Exception):
 
 
 class PAwRSyncLostError(Exception):
-    """PAwR sync lost occured"""
-    def __init__(self, message, esl_id, group_id, ble_address):            
+    """PAwR sync lost occurred"""
+    def __init__(self, message, esl_id, group_id, ble_address):
         super().__init__(message)
         self.esl_id = esl_id
         self.group_id = group_id
@@ -438,6 +437,7 @@ class Tag:
     def state(self, value: TagState):
         """Connection state setter - for class internal use, only!"""
         if self._state != value:
+            old_esl_state = self.esl_state
             now = dt.now()
             new_state = TagState(value)
             self.log.debug(
@@ -452,6 +452,9 @@ class Tag:
             self._state = new_state
             if (new_state == TagState.IDLE):
                 self.limit_connection_retries()
+            new_esl_state = self.esl_state
+            if old_esl_state != new_esl_state:
+                self._notify("esl_state", old_esl_state, new_esl_state)
             self._notify("state", previous_state, new_state)
 
     @property
@@ -496,9 +499,11 @@ class Tag:
             for cb in self._observers:
                 cb(self, field, old, new)
 
-    def reset(self, keep_esl_address=False):
+    def reset(self, keep_esl_address=False, old_esl_state_override=None):
         """Reset object states"""
-        old_esl_state = self.esl_state
+        old_esl_state = (
+            self.esl_state if old_esl_state_override is None else old_esl_state_override
+        )
         keys = [
             elw.ESL_LIB_DATA_TYPE_GATT_AP_SYNC_KEY,
             elw.ESL_LIB_DATA_TYPE_GATT_RESPONSE_KEY,
@@ -534,12 +539,26 @@ class Tag:
             self._connection_timer.cancel()
         # Reset busy state
         self.busy = False
-        self.connection_handle = None
+        # SILENT state change to IDLE during reset to avoid redundant esl_state notification
+        previous_state = self._state
+        previous_handle = self._connection_handle
+        self._state = TagState(TagState.IDLE)
+        self._state_timestamp = dt.now()
+        self._connection_handle = None
+        self.limit_connection_retries()
         self._past_subevents_max = None
         self._associated = False
+
+        # Notify about BOTH state and esl_state at the end of reset
         new_esl_state = self.esl_state
         if new_esl_state != old_esl_state:
             self._notify("esl_state", old_esl_state, new_esl_state)
+
+        if previous_state != TagState.IDLE:
+            self._notify("state", previous_state, TagState.IDLE)
+
+        if previous_handle is not None:
+            self._notify("connection_handle", previous_handle, None)
 
     def block(self, lib_status=elw.ESL_LIB_STATUS_UNSPECIFIED_ERROR):
         """Set blocked state if not set already"""
@@ -564,8 +583,15 @@ class Tag:
 
     def unassociate(self):
         """Unassociate tag object"""
+        old_esl_address = self.esl_address
+        old_esl_state = self.esl_state
         self.gatt_values = {}
-        self.reset()
+
+
+        if old_esl_address is not None:
+            self._notify("esl_address", old_esl_address, None)
+
+        self.reset(old_esl_state_override=old_esl_state)
 
     def unsynchronize(self):
         """Clear the BASIC_STATE_FLAG_SYNCHRONIZED flag internally to consider a tag unsynced"""
@@ -849,7 +875,13 @@ class Tag:
                             ix,
                         )
                         self.close_connection(force_close=True)
+
+                old_esl_state = self.esl_state
                 self.gatt_values.update(evt.tlv_data)
+                new_esl_state = self.esl_state
+                if old_esl_state != new_esl_state:
+                    self._notify("esl_state", old_esl_state, new_esl_state)
+
                 if elw.ESL_LIB_DATA_TYPE_GATT_PNP_ID in evt.tlv_data:
                     if self.pnp_vendor_id is None:
                         self.log.error(
@@ -911,10 +943,21 @@ class Tag:
         elif isinstance(evt, esl_lib.EventConfigureTagResponse):
             if evt.connection_handle == self.connection_handle:
                 if evt.status == elw.SL_STATUS_OK:
+                    # SL_STATUS_OK confirms the device accepted the write; notify TagDB here when
+                    # the stored ESL Address changes (setter alone runs before confirmation).
+                    old_esl_address_for_notify = self.esl_address
                     self.gatt_values[evt.type] = self.gatt_write_values[evt.type]
+                    if evt.type == elw.ESL_LIB_DATA_TYPE_GATT_ESL_ADDRESS:
+                        new_esl_address = self.esl_address
+                        if old_esl_address_for_notify != new_esl_address:
+                            self._notify(
+                                "esl_address",
+                                old_esl_address_for_notify,
+                                new_esl_address,
+                            )
                 else:
                     self.log.error(
-                        "Tag configuration failed for %s at addres %s with result %s!",
+                        "Tag configuration failed for %s at address %s with result %s!",
                         esl_lib.get_enum("ESL_LIB_DATA_TYPE_", evt.type),
                         self.ble_address,
                         esl_lib.get_sl_status_str(evt.status),
@@ -1024,6 +1067,7 @@ class Tag:
                         elw.SL_STATUS_BT_CTRL_CONNECTION_LIMIT_EXCEEDED,
                     ]
                     and not self.advertising
+                    and not self.synchronized
                 ):
                     self._advertising = True  # set _advertising back - since it should advertising - to prevent re-report of already known tag
                     self.start_advertising_governor()  # the advertising governor will take care of it if it does not advertise as we expect
@@ -1119,9 +1163,10 @@ class Tag:
         key_type: int = elw.ESL_LIB_KEY_TYPE_NO_KEY,
         key: bytes = None,
         timeout: int = None,
+        ignore_tag_state: bool = False
     ):
         """Connect to the tag"""
-        if self.state != TagState.IDLE:
+        if self.state != TagState.IDLE and not ignore_tag_state:
             raise InvalidTagStateError(
                 f"Invalid ESL object state: {self._state} at address {self.ble_address}"
             )
@@ -1211,15 +1256,14 @@ class Tag:
                 f"Invalid ESL object state: {self._state} at address {self.ble_address}"
             )
         factory_reset = data[0] == TLV_OPCODE_FACTORY_RST
-        if (data[0] == TLV_OPCODE_UNASSOCIATE or factory_reset) and data[
-            1
-        ] == self.esl_id:
-            self.pending_unassociate = True
         try:
             self.lib.write_control_point(
                 self.connection_handle, data, (att_response or factory_reset)
             )
             self.busy = True
+            if data[1] == self.esl_id:
+                if (data[0] == TLV_OPCODE_UNASSOCIATE or factory_reset):
+                    self.pending_unassociate = True
         except esl_lib.CommandFailedError as e:
             self.log.error(e)
 

@@ -30,6 +30,7 @@ Methods rely on AccessPoint instance attributes and DOES NOT define instance sta
 
 import re
 import struct
+import threading
 from io import BytesIO
 from datetime import datetime as dt
 from esl_command import ESLCommand
@@ -42,6 +43,7 @@ from ap_constants import (
     ADDRESS_TYPE_PUBLIC_ADDRESS,
     ADDRESS_TYPE_STATIC_ADDRESS,
     BROADCAST_ADDRESS,
+    PA_SUBEVENT_MAX,
     CCMD_CONNECT,
     CCMD_DISCONNECT,
     CCMD_DISPLAY_IMAGE,
@@ -144,39 +146,26 @@ class CLICommandsMixin:
         else:
             self.stop_scan()
 
-    def ap_connect(self, esl_id, bt_addr: str, group_id, address_type):
+    def ap_connect(
+        self,
+        esl_id,
+        bt_addr: str | None,
+        group_id=None,
+        address_type=None,
+        ap_identity: esl_lib.Address = None,
+    ):
         """
-        Connect to an ESL device with the specified address.
+        Connect to one or more ESL devices.
         input:
-            - esl_id:   ESL ID or 'all' - the latter with special meaning: try connecting to more advertising tags at once
-            - bt_addr:  Bluetooth address
-            - group_id: ESL group ID
+            - esl_id:       ESL ID or 'all' - the latter with special meaning: try connecting to more advertising tags at once
+            - bt_addr:      Bluetooth address
+            - group_id:     ESL group ID (optional, default is None)
+            - address_type: ESL address type (optional)
         """
         connecting_to = []
-        if esl_id is not None:
-            if esl_id == "all":
-                connecting_to = [
-                    tag
-                    for tag in self.tag_db.list_state(TagState.IDLE)
-                    if (
-                        tag.advertising
-                        and (group_id is None or tag.group_id == group_id)
-                    )
-                ]
-            else:
-                if group_id is None:
-                    group_id = 0
-                tag = self.tag_db.find((esl_id, group_id))
-                if tag is None:
-                    self.log.error(
-                        "Can't connect to unknown tag: ESL ID: %u, Group ID: %u",
-                        esl_id,
-                        group_id,
-                    )
-                    return
-                else:
-                    connecting_to.append(tag)
-        elif bt_addr is not None:
+
+        # Handle Bluetooth Address (unique device, ignore group_id)
+        if bt_addr is not None:
             if address_type is None:
                 bt_address_public = esl_lib.Address.from_str(
                     bt_addr, ADDRESS_TYPE_PUBLIC_ADDRESS
@@ -201,6 +190,7 @@ class CLICommandsMixin:
                 else:
                     tag = next(item for item in tags if item is not None)
                     address_type = tag.ble_address.address_type
+
             bt_address = esl_lib.Address.from_str(bt_addr, address_type)
             tag = self.tag_db.find(bt_address)
             if tag is None or (
@@ -209,6 +199,45 @@ class CLICommandsMixin:
             ):
                 tag = self.tag_db.add(self.lib, bt_address)
             connecting_to.append(tag)
+        # Handle ESL ID addressing
+        elif esl_id is not None:
+            if esl_id in ["all", BROADCAST_ADDRESS]:
+                connecting_to = [
+                    tag
+                    for tag in self.tag_db.list_state(TagState.IDLE)
+                    if (
+                        tag.advertising
+                        and (group_id in [PA_SUBEVENT_MAX, None] or tag.group_id == group_id)
+                    )
+                ]
+            else:
+                # Specific ESL ID
+                if group_id == PA_SUBEVENT_MAX:
+                    # NG (Optimal Next Group) mode triggered by explicit group_id=PA_SUBEVENT_MAX
+                    tag = self.find_next_optimal_tag(esl_id=int(esl_id))
+                    if tag:
+                        connecting_to.append(tag)
+                    else:
+                        self.log.warning(
+                            "No suitable synchronized tag with ESL ID %u found for the next optimal group connection.",
+                            int(esl_id),
+                        )
+                        return
+                else:
+                    if group_id is None:
+                        group_id = 0
+                    tag = self.tag_db.find((int(esl_id), group_id))
+                    if tag is None:
+                        self.log.error(
+                            "Can't connect to unknown tag: ESL ID: %u, Group ID: %u",
+                            int(esl_id),
+                            group_id,
+                        )
+                        return
+                    else:
+                        connecting_to.append(tag)
+
+        # Handle default "find single advertiser" case (neither esl_id nor bt_addr provided)
         else:
             connecting_to = [
                 tag
@@ -233,32 +262,119 @@ class CLICommandsMixin:
             self.log.warning("There's no advertising tag to connect to!")
             return
 
-        for tag in connecting_to:
-            if tag.state in (TagState.CONNECTED, TagState.CONNECTING):
+        # Tags this user command selected (distinct Tag rows). Other code paths may call connect()
+        # asynchronously for ESL-profile behaviour; they must not affect this command's summary.
+        user_connect_scope: dict[int, Tag] = {tag.id: tag for tag in connecting_to}
+        advertising_esl_in_scope = len(connecting_to)
+        initiated_from_user_command = 0
+        skipped_already_busy_in_scope = 0
+        not_started_due_to_ap_limit_in_scope = 0
+        # CONNECT attempts that returned CONN_FAILED with limit/no-resource (subset of initiated_from_user_command)
+        scope_conn_limit_fail_tag_ids: set[int] = set()
+
+        # Simple lambda subscription to wait for bonded or error event to avoid flooding the stack
+        finished_event = threading.Event()
+
+        def on_user_connect_waitable(evt):
+            if isinstance(evt, esl_lib.EventError):
                 if (
-                    self.controller_command == CCMD_CONNECT
-                    and not self.demo_auto_reconfigure
-                    and tag.state == TagState.CONNECTED
+                    evt.lib_status == elw.ESL_LIB_STATUS_CONN_FAILED
+                    and evt.sl_status
+                    in (
+                        elw.SL_STATUS_NO_MORE_RESOURCE,
+                        elw.SL_STATUS_BT_CTRL_CONNECTION_LIMIT_EXCEEDED,
+                        elw.SL_STATUS_BT_CTRL_SYNCHRONOUS_CONNECTION_LIMIT_EXCEEDED,
+                    )
                 ):
-                    # If a request is coming from the demo controller by scanning the QR code of an already connected but yet unconfigured tag...
-                    self.notify_controller(
-                        self.controller_command, CONTROLLER_COMMAND_SUCCESS
-                    )  # ...then just send the acknowledge immediately
-                self.log.warning(
-                    "%s already to %s, request ignored.", tag.state, tag.ble_address
-                )
-                continue
+                    tag = self.tag_db.find(evt.node_id)
+                    if tag is not None and tag.id in user_connect_scope:
+                        scope_conn_limit_fail_tag_ids.add(tag.id)
+            finished_event.set()
 
-            if not self.cmd_mode and not self.auto_override:
-                self.auto_override = True
+        self.evt_dispatcher.subscribe("bonding_finished", on_user_connect_waitable)
+        self.evt_dispatcher.subscribe("error", on_user_connect_waitable)
 
-            if not self.max_conn_count_reached:
-                self.connect(tag)
-            else:
-                self.log.warning(
-                    "Maximum number of available connections reached, connecting to 'all' halted!"
+        requested_connect_count = 0
+        initial_parallel_request_limit = 3
+        self.log.debug(
+            "User connect command internal scope (tag.id keys): %s",
+            sorted(user_connect_scope),
+        )
+        try:
+            for idx, tag in enumerate(connecting_to):
+                recovery_direct_connect = (
+                    tag.state == TagState.CONNECTING
+                    and ap_identity is not None
+                    and self._is_authorized_recovery_identity(tag, ap_identity)
                 )
-                return
+                if tag.state == TagState.CONNECTED or (
+                    tag.state == TagState.CONNECTING and not recovery_direct_connect
+                ):
+                    if (
+                        self.controller_command == CCMD_CONNECT
+                        and not self.demo_auto_reconfigure
+                        and tag.state == TagState.CONNECTED
+                    ):
+                        # If a request is coming from the demo controller by scanning the QR code of an already connected but yet unconfigured tag...
+                        self.notify_controller(
+                            self.controller_command, CONTROLLER_COMMAND_SUCCESS
+                        )  # ...then just send the acknowledge immediately
+                    self.log.warning(
+                        "%s already to %s, request ignored.", tag.state, tag.ble_address
+                    )
+                    skipped_already_busy_in_scope += 1
+                    continue
+
+                if not self.cmd_mode and not self.auto_override:
+                    self.auto_override = True
+
+                if not self.max_conn_count_reached:
+                    self.bonding_finished = False
+                    self.connect(tag, ap_identity=ap_identity)
+                    initiated_from_user_command += 1
+                    requested_connect_count += 1
+
+                    # If we reached the parallel limit, wait for at least one to finish before starting the next
+                    if requested_connect_count >= initial_parallel_request_limit:
+                        if not finished_event.wait(timeout=10):
+                            self.log.debug("Timeout waiting for a connection/bonding result")
+                        finished_event.clear()
+                        requested_connect_count -= 1
+                else:
+                    self.log.warning(
+                        "Maximum number of available connections reached, connecting to 'all' halted!"
+                    )
+                    not_started_due_to_ap_limit_in_scope = len(connecting_to) - idx
+                    break
+
+            # Wait for remaining in-flight connections if there were more than one tag
+            if len(connecting_to) > 1:
+                while requested_connect_count > 0:
+                    if not finished_event.wait(timeout=10):
+                        self.log.debug("Timeout waiting for remaining connection/bonding results")
+                        break
+                    finished_event.clear()
+                    requested_connect_count -= 1
+        finally:
+            self.evt_dispatcher.unsubscribe("bonding_finished", on_user_connect_waitable)
+            self.evt_dispatcher.unsubscribe("error", on_user_connect_waitable)
+            stack_limit_denied = len(scope_conn_limit_fail_tag_ids)
+            if esl_id in ["all", BROADCAST_ADDRESS]:
+                self.log.info(
+                    "'connect all' summary: %d adv. ESL%s in scope; "
+                    "%d skipped due already connecting or connected; "
+                    "%d stack connect attempt%s, of which %d failed due resource limit; "
+                    "%d in-scope ESL%s %s not attempted after resource limit reached.",
+                    advertising_esl_in_scope,
+                    "s" if advertising_esl_in_scope != 1 else "",
+                    skipped_already_busy_in_scope,
+                    initiated_from_user_command,
+                    "s" if initiated_from_user_command != 1 else "",
+                    stack_limit_denied,
+                    not_started_due_to_ap_limit_in_scope,
+                    "s" if not_started_due_to_ap_limit_in_scope != 1 else "",
+                    "was" if not_started_due_to_ap_limit_in_scope == 1 else "were",
+            )
 
     def ap_disconnect(self, esl_id, bt_addr: str, group_id):
         """
@@ -331,9 +447,7 @@ class CLICommandsMixin:
         ALL = "all"
         tags_to_configure = []
         if bt_addr == ALL:
-            tags_to_configure = self.tag_db.list_esl_state(
-                (EslState.UPDATING, EslState.CONFIGURING)
-            )
+            tags_to_configure = self.tag_db.list_state(TagState.CONNECTED)
             if not tags_to_configure:
                 self.log.error("No connected tag present!")
         else:
@@ -522,6 +636,8 @@ class CLICommandsMixin:
             )
             qr_request = True
 
+        errors = []
+
         for tag in tags_to_update:
             try:
                 if qr_request:
@@ -553,6 +669,7 @@ class CLICommandsMixin:
                     self.ap_update_complete(
                         tag.esl_id, tag.group_id
                     )  # To prevent the provisioning process from stalling in automatic mode, we need to disconnect.
+                errors.append((tag, ex))
                 continue
             except ImageTypeRequired:
                 self.log.debug(
@@ -561,6 +678,9 @@ class CLICommandsMixin:
                     tag.ble_address,
                 )
                 continue
+
+        if errors:
+            raise ImageUpdateFailed(f"Image update failed on {len(errors)} ESLs")
 
     def ap_unassociate(self, address, group_id):
         """
@@ -700,7 +820,7 @@ class CLICommandsMixin:
                         CONTROLLER_REQUEST_MORE_DATA
                         if tag is not list_of_tags[-1]
                         else CONTROLLER_REQUEST_LAST_DATA,
-                        tag.esl_address,
+                        ((tag.esl_address or 0) & 0xFFFF).to_bytes(2, "little"),
                         str(tag.ble_address),
                         tag.max_image_index + 1
                         if tag.max_image_index is not None
@@ -919,7 +1039,7 @@ class CLICommandsMixin:
                     CCMD_DISPLAY_IMAGE, CONTROLLER_COMMAND_SUCCESS, esl_id
                 )
 
-    def ap_ping(self, address, group_id, force_pawr=False):
+    def ap_ping(self, address, group_id=None, force_pawr=False):
         """
         Send ESL ping command.
         input:
@@ -1044,6 +1164,70 @@ class CLICommandsMixin:
             if self.scan_runs and (not self.cmd_mode or self.auto_override):
                 self.start_scan(clear_lists=True)
 
+    def ap_image_throughput(
+        self, start=False, max_tag_count=None, max_group_id=None, parallel_connections=None
+    ):
+        """
+        Start or stop the image throughput stress test (not an AP operating mode).
+
+        On start, the AP switches to manual control (cmd_mode) while the test runs, then
+        ``_itp_stop`` restores the previous automated vs manual state when the test ends.
+
+        Args:
+            start: Boolean indicating whether the request is to start or stop the operation.
+            max_tag_count: optional cap on how many synchronized tags are enrolled (start only).
+            max_group_id: optional maximum ESL group id (inclusive) for tags to enroll (start only).
+            parallel_connections: optional; start only. Sets how ``_itp_init`` initialises
+                ``_itp_max_conn_limit`` (omit to preserve prior value, 0 to clear, 1..32 for a cap).
+        """
+        if not start:
+            if not self.image_throughput_test:
+                self.log.info("Image throughput test is not running.")
+                return
+            self._itp_stop()
+            return
+
+        if self.image_throughput_test:
+            self.log.error("Image throughput test is already running.")
+            return
+
+        if not self.pawr_active:
+            self.log.error(
+                "PAwR must be active before starting the image throughput test. "
+                "Use 'sync start' first."
+            )
+            return
+
+        if max_tag_count is not None and max_tag_count < 1:
+            self.log.error(
+                "max_tag_count must be at least 1 when given, request ignored."
+            )
+            return
+        if max_group_id is not None and max_group_id < 0:
+            self.log.error(
+                "max_group_id must be non-negative when given, request ignored."
+            )
+            return
+
+        if self.demo_mode:
+            self.log.error(
+                "Demo mode must be disabled, request ignored."
+            )
+            return
+
+        self._itp_init(
+            max_tag_count=max_tag_count,
+            max_group_id=max_group_id,
+            parallel_connections=parallel_connections,
+        )
+        self.cmd_mode = True
+        self.auto_override = False
+        self.image_throughput_test = True
+        self.set_mode_handlers()
+        self._itp_build_queue()
+        self.log.info("Image throughput test started")
+        self._itp_request_fill_slots_async()
+
     def ap_mode(self, auto_mode, lib_connection_mode=None):
         """
         Changes ESL Access Point operation mode. Also changes the ESL library connection mode on explicit user requests
@@ -1061,6 +1245,9 @@ class CLICommandsMixin:
                 lib_connection_mode,
             )
             return
+        if self.image_throughput_test and auto_mode is not None:
+            self._itp_log_stats("Image throughput test stopped by user")
+            self.image_throughput_test = False
         if auto_mode == True:
             if self.demo_controller_connected:
                 self.log.error(
@@ -1098,9 +1285,12 @@ class CLICommandsMixin:
                 else lib_connection_mode
             )
         else:
+            mode_str = "manual" if self.cmd_mode else "automated"
+            if self.image_throughput_test:
+                mode_str += " (image throughput test active)"
             log(
                 "  Current AP mode: {0}, ESL library connection mode: {1}".format(
-                    "manual" if self.cmd_mode else "automated",
+                    mode_str,
                     "single"
                     if (self.lib_connection_mode == elw.ESL_LIB_CONNECTION_MODE_SINGLE)
                     else "list based",

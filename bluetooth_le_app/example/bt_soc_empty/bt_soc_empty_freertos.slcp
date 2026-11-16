@@ -1,12 +1,12 @@
 project_name: bt_soc_empty_freertos
 package: bluetooth_le_app
 label: Bluetooth - SoC Empty FreeRTOS
-description: >
+description: >-
   A minimal project structure, that serves as a starting point for custom
   Bluetooth applications. The application starts advertising after boot and
   restarts advertising after a connection is closed.
 category: Bluetooth Examples
-quality: experimental
+quality: production
 
 filter:
   - name: "Wireless Technology"

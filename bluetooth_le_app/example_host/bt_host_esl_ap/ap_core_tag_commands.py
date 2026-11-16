@@ -43,7 +43,7 @@ from ap_config import (
     KEY_MATERIAL_REUSE_ENABLED,
 )
 from esl_command import ESLCommand
-from esl_tag import Tag, TagState, EslState, InvalidTagStateError, PAwRSyncLostError
+from esl_tag import Tag, TagState, EslState, InvalidTagStateError, PAwRSyncLostError, ImageUpdateFailed
 import esl_lib
 import esl_lib_wrapper as elw
 import random
@@ -52,13 +52,42 @@ import struct
 class TagCommandsMixin:
     """Tag-specific commands and routing"""
 
+    def _is_authorized_recovery_identity(
+        self,
+        tag: Tag,
+        ap_identity: esl_lib.Address,
+    ) -> bool:
+        """Allow recovery direct-connect only for the bound AP identity or this AP."""
+        if ap_identity is None:
+            return False
+
+        esl_record = self.key_db.find_esl(tag.ble_address)
+        if esl_record is not None and esl_record.ap_address is not None:
+            return esl_record.ap_address == ap_identity
+
+        return self.ncp_address is not None and self.ncp_address == ap_identity
+
     def connect(
         self,
         tag: Tag,
-        ap_identity: esl_lib.Address = esl_lib.Address.from_str("3425B4A91C8A"),
+        ap_identity: esl_lib.Address = None,
     ):
         """Establish connection with a tag normally or via PAwR"""
-        # group ID shouldn't be None if the tag is in sychronized state, but better to doublecheck
+        recovery_direct_connect = (
+            tag.state == TagState.CONNECTING
+            and ap_identity is not None
+            and self._is_authorized_recovery_identity(tag, ap_identity)
+        )
+
+        if tag.state == TagState.CONNECTING and not recovery_direct_connect:
+            self.log.error(
+                "Recovery direct connect to %s denied due to unauthorized AP identity.",
+                tag.ble_address,
+            )
+            return
+
+        ignore_tag_state = False
+        # group ID shouldn't be None if the tag is in synchronized state, but better to doublecheck
         if tag.esl_state == EslState.SYNCHRONIZED and tag.group_id is not None:
             pawr = esl_lib.PAWRSubevent(self.pawr_handle, tag.group_id)
         else:
@@ -74,8 +103,21 @@ class TagCommandsMixin:
             tag.ble_address,
             "over PAwR" if pawr else "via connectable advertisement",
         )
+        if recovery_direct_connect and pawr is None:
+            self.log.warning(
+                "Attempting recovery direct connect to %s with authorized AP identity.",
+                tag.ble_address,
+            )
+            ignore_tag_state = True
         try:
-            tag.connect(pawr, key_type=key_type, key=ltk, timeout=2*1.25*self.adv_interval_max if pawr else None)
+            tag.connect(
+                pawr,
+                identity=ap_identity,
+                key_type=key_type,
+                key=ltk,
+                timeout=2 * 1.25 * self.adv_interval_max if pawr else None,
+                ignore_tag_state=ignore_tag_state
+            )
         except Exception as e:
             self.log.error(e)
 
@@ -129,7 +171,7 @@ class TagCommandsMixin:
 
     def past(self, tag: Tag):
         """Do Periodic Advertisement Sync Transfer over connection"""
-        if tag.past_initiated:
+        if tag.past_initiated and not tag.synchronized:
             return
         elif not self.pawr_active:
             if self.cmd_mode:
@@ -153,7 +195,11 @@ class TagCommandsMixin:
         image_path = self.image_path + random.choice(
             random.sample(self.image_files, len(self.image_files))
         )
-        self.ap_imageupdate(image_index, image_path, address=tag.ble_address)
+        try:
+            self.ap_imageupdate(image_index, image_path, address=tag.ble_address)
+        except ImageUpdateFailed as e:
+            self.log.warning(e)
+            self.past(tag) # try gentle closing on unexpected failure
 
     def upload_next_image(self, tag: Tag):
         """Upload next image in the automatic image upload sequence (kept here for tag-related logic)"""

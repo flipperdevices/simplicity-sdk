@@ -25,6 +25,8 @@ ESL Library
 # 3. This notice may not be removed or altered from any source distribution.
 
 import ctypes
+import inspect
+import re
 
 # True multiprocessing is temporarily disabled.
 import multiprocessing.dummy as mp
@@ -186,7 +188,7 @@ class Address:
             return (self.addr == other.addr) and (
                 self.address_type == other.address_type
             )
-        if len(other) >= 12:
+        if isinstance(other, str) and len(other) >= 12:
             val_b = bytes.fromhex(other.replace(":", ""))[::-1]
             return val_b == self.addr
         return other == self.addr
@@ -731,6 +733,24 @@ class EventGeneral:
         return f"{self.evt_code}, {self.data.hex()}"
 
 
+def get_event_fields():
+    """Build mapping from event name to set of instance field names by introspecting Event classes."""
+    mapping = {}
+    for _, cls in inspect.getmembers(sys.modules[__name__], inspect.isclass):
+        evt_code = getattr(cls, 'evt_code', None)
+        if isinstance(evt_code, EventType):
+            event_name = evt_code.name
+            try:
+                src = inspect.getsource(cls.__init__)
+                fields = set(re.findall(r'self\.(\w+)\s*=', src))
+                mapping[event_name] = fields
+            except (TypeError, OSError):
+                mapping[event_name] = set()
+    return mapping
+
+EVENT_FIELDS = get_event_fields()
+
+
 class CommandFailedError(Exception):
     """ESL Library command failed"""
 
@@ -1184,6 +1204,45 @@ class Lib:
     def _get_connection_mode(self):
         """Internal wrapper for esl_lib_get_connection_mode"""
         status = elw.esl_lib_get_connection_mode()
+        return (status,)
+
+    def adv_dedup_configure(
+        self,
+        enabled,
+        refresh_ms,
+        default_watchdog_ms,
+        cache_size_max,
+        period_multiplier,
+    ):
+        """Public wrapper for esl_lib_adv_dedup_configure"""
+        result = self._serialize_command(
+            "_adv_dedup_configure",
+            (
+                enabled,
+                refresh_ms,
+                default_watchdog_ms,
+                cache_size_max,
+                period_multiplier,
+            ),
+        )
+        return result[0]
+
+    def _adv_dedup_configure(
+        self,
+        enabled,
+        refresh_ms,
+        default_watchdog_ms,
+        cache_size_max,
+        period_multiplier,
+    ):
+        """Internal wrapper for esl_lib_adv_dedup_configure"""
+        cfg = elw.esl_lib_adv_dedup_config_t()
+        cfg.refresh_ms = refresh_ms
+        cfg.default_watchdog_ms = default_watchdog_ms
+        cfg.enabled = elw.ESL_LIB_TRUE if enabled else elw.ESL_LIB_FALSE
+        cfg.cache_size_max = cache_size_max
+        cfg.period_multiplier = period_multiplier
+        status = elw.esl_lib_adv_dedup_configure(byref(cfg))
         return (status,)
 
     def general_command(self, cmd_code, data: bytes = None):

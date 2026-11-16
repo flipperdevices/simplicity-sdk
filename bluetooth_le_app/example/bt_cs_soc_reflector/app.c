@@ -86,6 +86,12 @@ void app_init(void)
     case CS_SYNC_ANTENNA_2:
       app_log_info(APP_PREFIX "Antenna 2 will be used for RTT" APP_LOG_NL);
       break;
+    case CS_SYNC_ANTENNA_3:
+      app_log_info(APP_PREFIX "Antenna 3 will be used for RTT" APP_LOG_NL);
+      break;
+    case CS_SYNC_ANTENNA_4:
+      app_log_info(APP_PREFIX "Antenna 4 will be used for RTT" APP_LOG_NL);
+      break;
     default:
       if (cs_reflector_config.cs_sync_antenna != CS_SYNC_SWITCHING) {
         app_log_warning(APP_PREFIX "Unknown RTT antenna usage (%d)! " APP_LOG_NL,
@@ -195,18 +201,6 @@ void sl_bt_on_event(sl_bt_msg_t *evt)
       app_log_error(APP_PREFIX "System error occurred; reason='0x%02x'" APP_LOG_NL,
                     evt->data.evt_system_error.reason);
       break;
-
-    // -------------------------------
-    // This event is received when a bonding procedure fails
-    case sl_bt_evt_sm_bonding_failed_id:
-    {
-      app_log_error(APP_INSTANCE_PREFIX "Bonding failed; reason='0x%02x'" APP_LOG_NL,
-                    evt->data.evt_sm_bonding_failed.connection,
-                    evt->data.evt_sm_bonding_failed.reason);
-      sl_status_t sc = sl_bt_connection_close(evt->data.evt_sm_bonding_failed.connection);
-      app_assert_status(sc);
-    }
-    break;
 
     // -------------------------------
     // This event indicates that a MTU exchange has finished

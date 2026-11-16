@@ -738,7 +738,7 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
             idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned long)(value > 0 ? value : 0 - value), value < 0, base, precision, width, flags);
           }
           else {
-            const int value = (flags & FLAGS_CHAR) ? (char)va_arg(va, int) : (flags & FLAGS_SHORT) ? (short int)va_arg(va, int) : va_arg(va, int);
+            const int value = (flags & FLAGS_CHAR) ? (signed char)va_arg(va, int) : (flags & FLAGS_SHORT) ? (short int)va_arg(va, int) : va_arg(va, int);
             idx = _ntoa_long(out, buffer, idx, maxlen, (unsigned int)(value > 0 ? value : 0 - value), value < 0, base, precision, width, flags);
           }
         }
@@ -896,8 +896,17 @@ int snprintf(char* buffer, size_t count, const char* format, ...)
 }
 
 
-#if (defined(__GNUC__) && !defined(__clang__))
+#if defined(__GNUC__)
+#if !defined(__clang__)
 int sniprintf (char *, size_t, const char *, ...) __copy(snprintf) __attribute__ ((__alias__("snprintf")));
+#elif !defined(__APPLE__)
+// Clang on non-Apple targets: __alias__ is supported on ELF but not on
+// Darwin (Mach-O).  Provide sniprintf so that newlib-nano's
+// libc_a-snprintf.o (which bundles both snprintf and sniprintf) is not
+// pulled from the archive when strftime references sniprintf, avoiding a
+// duplicate symbol error with LLVM/LTO.
+int sniprintf (char *, size_t, const char *, ...) __attribute__ ((__alias__("snprintf")));
+#endif
 int puts(const char* s)
 {
   // handle calls to printf("..."); here

@@ -80,3 +80,8 @@ readme:
   - path: readme.md
 ui_hints:
   highlight: readme.md
+tag:
+  - hardware:component:coulomb_counter
+  - hwfilter:board:brd4179b
+  - hwfilter:board:hardware_board_has_efp
+  - hwfilter:device:device_family_efr32mg21

@@ -813,8 +813,14 @@ typedef enum EZwaveCommandType{
    * every reset or power-up.
    * The RAM variables that stores the threshold values are initialized after ApplicationInitHW thus
    * ZW_SetListenBeforeTalkThreshold should be called in ApplicationInitSW.
-   * The default threshold value is set to a value corresponding to the RF regulatory requirements for a Z-Wave module in the specific country.
-   * The appropriate value range goes from 34(dec) to 78(dec) and each threshold step corresponds to a 1.5dB input power step.
+   * The default threshold value is set to a value corresponding to the RF regulatory requirements for a
+   * Z-Wave module in the specific region.
+   *
+   * The threshold is a signed RSSI value in dBm, encoded as an int8_t according to the RSSI encoding used
+   * throughout the Z-Wave Host API. See Z-Wave Serial API specification, Section 4.8.7.
+   *
+   * @warning 500 series controllers used a different encoding: an unsigned scale from 34(dec) to 78(dec),
+   *          where each threshold step corresponds to 1.5 dB. E.g.,:
    *
    * | Region                               | Default Threshold (dec) | dBm |
    * |--------------------------------------|-------------------------|-----|
@@ -822,25 +828,16 @@ typedef enum EZwaveCommandType{
    * | KR                                   | 64                      | -65 |
    * | EU, US, HK, ANZ, CN, IL, IN, MY & RU | 64                      | -65 |
    *
-   * For instance, if a SAW filter with an insertion loss of 3dB is inserted between the antenna feed-point and
-   * the chip on a JP product, the threshold value should be set to 48(dec) .
+   * For instance, if a SAW filter with an insertion loss of 3 dB is inserted between the antenna feed-point
+   * and the chip on a JP 500 series product, the threshold value should be set to 48(dec).
    *
-   * @note In some contries (JP and KR) the value of the LBT threshold is specified in the RF regulatory
-   *       for the country and must be set to the value corresponding to the regulatory requirements.
+   * @warning The protocol accepts the value received from the host and does not enforce regional regulatory limits. It assumes that the host uses signed RSSI.
    *
    * @param[in] SetLBTThreshold.channel Channel number the threshold should be set for.
    *                                    Valid channel numbers are 0, 1 and 2
    *
-   * @param[in] SetLBTThreshold.level   LBT RSSI level in dBm.
-   *                                    The threshold the RSSI should use.
-   *                                    Valid threshold range is from 34(dec) to
-   *                                    78(dec). 34 will set the threshold to the
-   *                                    lowest amount of noise which the node
-   *                                    will refuse to transmit and thus will only
-   *                                    transmit in a quiet RF environment. 78
-   *                                    sets the threshold to the highest amount
-   *                                    of noise and the node will transmit even
-   *                                    in the presence of a lot of RF noise.
+   * @param[in] SetLBTThreshold.level   LBT RSSI threshold as a signed dBm value (int8_t).
+   *                                    The reserved RSSI encodings 125, 126 and 127 MUST NOT be used.
    */
   EZWAVECOMMANDTYPE_ZW_SET_LBT_THRESHOLD, // 99
 
@@ -1169,6 +1166,9 @@ typedef enum EZwaveCommandType{
   EZWAVECOMMANDTYPE_ZW_GET_INCLUDED_NLS_NODES, // 135
 
   EZWAVECOMMANDTYPE_SEND_PROTOCOL_DATA_CB,
+  EZWAVECOMMANDTYPE_SET_KEEP_ALIVE_TRACKING,
+  EZWAVECOMMANDTYPE_SET_SEVERITY_LEVEL,
+  EZWAVECOMMANDTYPE_GET_SEVERITY_LEVEL,
   NUM_EZWAVECOMMANDTYPE
 } EZwaveCommandType;
 
@@ -1214,6 +1214,7 @@ typedef enum EZwaveCommandStatusType{
   EZWAVECOMMANDSTATUS_ZW_INITIATE_SHUTDOWN,                         /**< EZWAVECOMMANDSTATUS_ZW_INITIATE_SHUTDOWN */
   EZWAVECOMMANDSTATUS_ZW_GET_INCLUDED_LR_NODES,                     /**< EZWAVECOMMANDSTATUS_ZW_GET_INCLUDED_LR_NODES */
   EZWAVECOMMANDSTATUS_ZW_GET_LR_CHANNEL,                            /**< EZWAVECOMMANDSTATUS_ZW_GET_LR_CHANNEL */
+  EZWAVECOMMANDSTATUS_KEEP_ALIVE_UPDATE,                            /**< EZWAVECOMMANDSTATUS_KEEP_ALIVE_UPDATE */
   EZWAVECOMMANDSTATUS_UNUSED1,                                      /**< EZWAVECOMMANDSTATUS_UNUSED1 */
   EZWAVECOMMANDSTATUS_UNUSED2,                                      /**< EZWAVECOMMANDSTATUS_UNUSED2 */
   EZWAVECOMMANDSTATUS_ZW_GET_PTI_CONFIG,                            /**< EZWAVECOMMANDSTATUS_ZW_GET_PTI_CONFIG */
@@ -1234,6 +1235,7 @@ typedef enum EZwaveCommandStatusType{
   EZWAVECOMMANDSTATUS_GET_NODE_NLS_STATE,                           /**< EZWAVECOMMANDSTATUS_GET_NODE_NLS_STATE */
   EZWAVECOMMANDSTATUS_ENABLE_NODE_NLS,                              /**< EZWAVECOMMANDSTATUS_ENABLE_NODE_NLS */
   EZWAVECOMMANDSTATUS_ZW_GET_INCLUDED_NLS_NODES,                    /**< EZWAVECOMMANDSTATUS_ZW_GET_INCLUDED_NLS_NODES */
+  EZWAVECOMMANDSTATUS_GET_SEVERITY_LEVEL,                           /**< EZWAVECOMMANDSTATUS_GET_SEVERITY_LEVEL */
   NUM_EZWAVECOMMANDSTATUS,                                          /**< NUM_EZWAVECOMMANDSTATUS */
   EZWAVECOMMANDSTATUS_INVALID = 0xFF
 } EZwaveCommandStatusType;
@@ -1249,6 +1251,7 @@ typedef enum EZwaveReceiveType{
   EZWAVERECEIVETYPE_STAY_AWAKE,                                        /**< EZWAVERECEIVETYPE_STAY_AWAKE */
   EZWAVERECEIVETYPE_SECURE_FRAME_RECEIVED,                             /**< Event received from the SECURE module. */
   EZWAVERECEIVETYPE_REQUEST_ENCRYPTION_FRAME,                          /**< EZWAVERECEIVETYPE_REQUEST_ENCRYPTION_FRAME */
+  EZWAVERECEIVETYPE_SINGLE_URGENT,                                     /**< Urgent/priority frame requiring immediate processing */
   NUM_EZWAVERECEIVETYPE,                                               /**< NUM_EZWAVERECEIVETYPE */
   EZWAVERECEIVETYPE_INVALID = 0xFF
 } EZwaveReceiveType;
@@ -1269,6 +1272,8 @@ typedef enum EProtocolEvent{
   EPROTOCOLEVENT_NETWORKID_UPDATE,
   EPROTOCOLEVENT_CHANGE_RADIO_PHY,
   EPROTOCOLEVENT_RADIO_ASSERT,
+  EPROTOCOLEVENT_RADIO_CAL_NEEDED,
+  EPROTOCOLEVENT_RADIO_IR_CAL_COMPLETE,
 #ifdef ZW_SECURITY_PROTOCOL
   EPROTOCOLEVENT_SECURITY_RUN,
 #endif
@@ -1484,7 +1489,7 @@ typedef struct SCommandSetLBTThreshold {
 SCommandSetLBTThreshold;
 
 typedef struct SCommandSetMaxInclReqInterval {
-  uint32_t inclusionRequestInterval;
+  uint8_t inclusionRequestInterval;
 } SCommandSetMaxInclReqInterval;
 
 typedef struct SCommandNvmBackupRestore {
@@ -1515,6 +1520,15 @@ typedef struct SCommandGetNLSNodes {
   node_id_t nodeID;
   uint8_t bitmaskOffset;
 } SCommandGetNLSNodes;
+
+typedef struct SCommandSetKeepAliveTracking {
+  bool value;
+} SCommandSetKeepAliveTracking;
+
+typedef struct SCommandSetSeverityLevel {
+  node_id_t nodeID;
+  uint8_t severity_level;
+} SCommandSetSeverityLevel;
 
 // Command structures END ---------------------------------------------
 
@@ -1628,6 +1642,7 @@ typedef struct STransmitFrameConfig{
   uint8_t TransmitOptions;
   uint8_t iFrameLength;
   uint8_t aFrame[TX_BUFFER_SIZE];
+  uint8_t app_session_id;
 } STransmitFrameConfig;
 
 typedef struct STransmitProtocolFrameConfig{
@@ -1636,6 +1651,7 @@ typedef struct STransmitProtocolFrameConfig{
   uint8_t protocolMetadata[PROTOCOL_METADATA_LENGTH];
   uint8_t FrameLength;
   uint8_t aFrame[TX_BUFFER_SIZE];
+  uint8_t app_session_id;
 } STransmitProtocolFrameConfig;
 
 // Basis API
@@ -1769,6 +1785,10 @@ typedef struct SZWaveInvalidCommandStatus{
 typedef struct SZWaveGeneric8bStatus{
   uint8_t result;     /* generic value of any API that uses a byte as a return value*/
 } SZWaveGeneric8bStatus;
+
+typedef struct SZWaveKeepAliveStatus{
+  node_id_t nodeId;
+} SZWaveKeepAliveStatus;
 
 typedef struct SZWaveGenericBoolStatus{
   bool result;     /* generic value of any API that uses a boolean as a return value*/
@@ -2030,6 +2050,8 @@ typedef union UCommandStatus{
   SZWaveTxPowerMaxSupported     GetTxPowerMaximumSupported;
   SCommandGetNodeNLSStateStatus GetNodeNlsStateStatus;
   SCommandEnableNodeNLSStatus   EnableNodeNlsStatus;
+  SZWaveKeepAliveStatus         KeepAliveUpdate;
+  SZWaveGeneric8bStatus         GetSeverityLevelStatus;
 } UCommandStatus;
 
 typedef union UReceiveCmdPayload{
@@ -2082,6 +2104,8 @@ typedef union UCommandParameters{
   SCommandGetNodeNLSState             GetNodeNlsState;
   SCommandSendProtocolDataCb            SendProtocolDataCb;
   SCommandGetNLSNodes                 GetNLSNodes;
+  SCommandSetKeepAliveTracking        SetKeepAliveTracking;
+  SCommandSetSeverityLevel            SetSeverityLevel;
 } UCommandParameters;
 
 /**************************************************************************
@@ -2093,6 +2117,11 @@ typedef struct SZwaveTransmitPackage{
   EZwaveTransmitType eTransmitType;
   UTransmitParameters uTransmitParams;
 } SZwaveTransmitPackage;
+
+/**
+ * @brief Return app_session_id from a transmit package, or 0 if not applicable.
+ */
+uint8_t ZW_TransmitPackageGetAppSessionId(const SZwaveTransmitPackage *pTransmitPackage);
 
 /**
  * Z-Wave Command Status Package

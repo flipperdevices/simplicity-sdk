@@ -82,13 +82,15 @@
 #define CS_INITIATOR_MAX_CONNECTIONS                  (1)
 #endif
 
-// <o CS_INITIATOR_MAX_RANGING_DATA_SIZE> Maximum ranging data size <32..2500>
+// <o CS_INITIATOR_MAX_RANGING_DATA_SIZE> Maximum ranging data size <32..2700>
 // <i> The optimal value of "Maximum ranging data size" is dependent on several configuration values,
 // <i> and can be calculated by the following equation:
-// <i> ranging_max_size = 4 + (subevents * 8) + (mode0_steps * mode0_size) +
+// <i> ranging_max_size = 4 + (subevents * 8) + (subevents * mode0_steps * mode0_size) +
 // <i> channels * ( ( 1 + ( antenna_paths + 1 ) * 4) + 1 )
 // <i> where
-// <i> - subevents value is constant 1 since one subevent per procedure is supported,
+// <i> - subevents is the number of CS subevents per procedure (range: 1..32), determined by the
+// <i>   controller based on CS_INITIATOR_DEFAULT_MIN_SUBEVENT_LEN and CS_INITIATOR_DEFAULT_MAX_SUBEVENT_LEN.
+// <i>   Shorter subevent lengths allow more subevents per procedure.
 // <i> - mode0_size is
 // <i>   - 4 for Reflector and
 // <i>   - 6 for Initiator,
@@ -102,20 +104,20 @@
 // <i> - antenna_paths value is controlled by the "Antenna configuration", and limited by number of
 // <i> antennas presented on each board (capabilities). Maximum can be calculated using the product
 // <i> of used Initiator and Reflector antennae. The default maximum value for antenna_paths is 4.
-// <i> These settings were selected by assuming that the controller creates only one subevent per procedure,
-// <i> and the measuring mode is PBR. In RTT mode there are far less data is created.
-// <i> The default is calculated by using the constants and settings above using the worst case scenario,
-// <i> which gives 1614 bytes.
+// <i> These settings were selected by assuming that the controller creates the maximum number of subevents (32),
+// <i> and the measuring mode is PBR. In RTT mode, far less data is created.
 // <i> Addition to that, if you use RTT as submode, you should add the following equation to calculate the
 // <i> size.
 // <i> (1 + mode1_size) * channels / main_mode_steps
 // <i> where
 // <i> mode1_size is 6, and main_mode_steps is 2. The later can be changed in cs_initiator_client.h.
+// <i> The default is calculated by using the constants and settings above using the worst case scenario, including using RTT submode
+// <i> which gives 2672 bytes.
 // <i> RAM consumption can be reduced by changing the affected settings and reducing
 // <i> "Procedure maximum length" accordingly.
-// <i> Default: 1866
+// <i> Default: 2672
 #ifndef CS_INITIATOR_MAX_RANGING_DATA_SIZE
-#define CS_INITIATOR_MAX_RANGING_DATA_SIZE            (1866)
+#define CS_INITIATOR_MAX_RANGING_DATA_SIZE            (2672)
 #endif
 
 // <o CS_INITIATOR_MAX_DROP> Maximum dropped procedures <2..10>
@@ -165,11 +167,11 @@
 // <h> Distance estimation
 
 // <o CS_INITIATOR_DEFAULT_ALGO_MODE> Object tracking mode
-// <SL_RTL_CS_ALGO_MODE_REAL_TIME_BASIC=> Real-time basic
-// <SL_RTL_CS_ALGO_MODE_STATIC_HIGH_ACCURACY=> Static high accuracy
-// <SL_RTL_CS_ALGO_MODE_REAL_TIME_FAST=> Real-time fast
-// <i> Default: SL_RTL_CS_ALGO_MODE_REAL_TIME_FAST
-#define CS_INITIATOR_DEFAULT_ALGO_MODE           SL_RTL_CS_ALGO_MODE_REAL_TIME_FAST
+// <SL_RTL_CS_ALGO_MODE_TRACKING_ACCURACY_OPTIMIZED=> Tracking accuracy optimized (suitable for moving targets)
+// <SL_RTL_CS_ALGO_MODE_STATIONARY=> Stationary (suitable for stationary targets)
+// <SL_RTL_CS_ALGO_MODE_TRACKING_LATENCY_OPTIMIZED=> Tracking latency optimized (suitable for fast moving targets)
+// <i> Default: SL_RTL_CS_ALGO_MODE_TRACKING_LATENCY_OPTIMIZED
+#define CS_INITIATOR_DEFAULT_ALGO_MODE           SL_RTL_CS_ALGO_MODE_TRACKING_LATENCY_OPTIMIZED
 
 // </h>
 
@@ -232,12 +234,38 @@
 #define CS_INITIATOR_DEFAULT_MAX_PROCEDURE_INTERVAL                     (38)
 #endif
 
+// <o CS_INITIATOR_DEFAULT_MIN_SUBEVENT_LEN> Minimum subevent length [us] <1250..3999999>
+// <i> Minimum suggested duration for each CS subevent in microseconds.
+// <i> Raising this value forces the controller to use longer subevents, reducing the number
+// <i> of subevents that fit within a single procedure. 
+// <i> This value should not exceed the maximum procedure time, which is calculated as:
+// <i> max_procedure_time_us = CS_INITIATOR_DEFAULT_MAX_PROCEDURE_INTERVAL
+// <i>                       * CS_INITIATOR_DEFAULT_MAX_CONNECTION_INTERVAL * 1250
+// <i> Default: 1250
+#ifndef CS_INITIATOR_DEFAULT_MIN_SUBEVENT_LEN
+#define CS_INITIATOR_DEFAULT_MIN_SUBEVENT_LEN          1250
+#endif
+
+// <o CS_INITIATOR_DEFAULT_MAX_SUBEVENT_LEN> Maximum subevent length [us] <1250..3999999>
+// <i> Maximum suggested duration for each CS subevent in microseconds.
+// <i> Reducing this value causes the controller to split CS steps across multiple subevents.
+// <i> When a large number of subevents is expected, ensure that the effective procedure interval
+// <i> is at least the number of created subevents, plus additional connection events for RAS data transfer.
+// <i> The effective procedure interval is determined by
+// <i> CS_INITIATOR_DEFAULT_PROCEDURE_SCHEDULING, or by CS_INITIATOR_DEFAULT_MAX_PROCEDURE_INTERVAL
+// <i> when custom scheduling is used.
+// <i> The subevent length should be configured to accommodate both Mode 0 steps and main mode steps.
+// <i> With default settings, values below ~38500 us result in more than one subevent per procedure.
+// <i> Default: 3999999
+#ifndef CS_INITIATOR_DEFAULT_MAX_SUBEVENT_LEN
+#define CS_INITIATOR_DEFAULT_MAX_SUBEVENT_LEN          3999999
+#endif
+
 // </h>
 
 // <h> Channels
 
 // <o CS_INITIATOR_DEFAULT_CHANNEL_MAP_PRESET> Channel map preset
-// <CS_CHANNEL_MAP_PRESET_LOW=> Low
 // <CS_CHANNEL_MAP_PRESET_MEDIUM=> Medium
 // <CS_CHANNEL_MAP_PRESET_HIGH=> High
 // <CS_CHANNEL_MAP_PRESET_CUSTOM=> Custom
@@ -272,15 +300,19 @@
 // <i> Use all the available antennas that can be supported
 // <i> Value: 0. 1 antenna path, [1:1] antenna [initiator:reflector]
 // <i> Value: 1. 2 antenna path, [2:1] antenna
-// <i> Value: 2. 3 antenna path, [3:1] antenna (not supported)
-// <i> Value: 3. 4 antenna path, [4:1] antenna (not supported)
+// <i> Value: 2. 3 antenna path, [3:1] antenna
+// <i> Value: 3. 4 antenna path, [4:1] antenna
 // <i> Value: 4. 2 antenna path, [1:2] antenna
-// <i> Value: 5. 3 antenna path, [1:3] antenna (not supported)
-// <i> Value: 6. 4 antenna path, [1:4] antenna (not supported)
+// <i> Value: 5. 3 antenna path, [1:3] antenna
+// <i> Value: 6. 4 antenna path, [1:4] antenna
 // <i> Value: 7. 4 antenna path, [2:2] antenna
 // <CS_ANTENNA_CONFIG_INDEX_SINGLE_ONLY=> 1 antenna path, [1:1] antenna
 // <CS_ANTENNA_CONFIG_INDEX_DUAL_I_SINGLE_R=> 2 antenna path, [2:1] antenna
+// <CS_ANTENNA_CONFIG_INDEX_TRIPLE_I_SINGLE_R=> 3 antenna path, [3:1] antenna
+// <CS_ANTENNA_CONFIG_INDEX_QUAD_I_SINGLE_R=> 4 antenna path, [4:1] antenna
 // <CS_ANTENNA_CONFIG_INDEX_SINGLE_I_DUAL_R=> 2 antenna path, [1:2] antenna
+// <CS_ANTENNA_CONFIG_INDEX_SINGLE_I_TRIPLE_R=> 3 antenna path, [1:3] antenna
+// <CS_ANTENNA_CONFIG_INDEX_SINGLE_I_QUAD_R=> 4 antenna path, [1:4] antenna
 // <CS_ANTENNA_CONFIG_INDEX_DUAL_ONLY=> 4 antenna path, [2:2] antenna
 // <i> Default: CS_ANTENNA_CONFIG_INDEX_DUAL_ONLY
 #define CS_INITIATOR_DEFAULT_CS_TONE_ANTENNA_CONFIG_IDX_REQ   CS_ANTENNA_CONFIG_INDEX_DUAL_ONLY
@@ -289,6 +321,8 @@
 // <i> Use all the available antennas that can be supported
 // <CS_SYNC_ANTENNA_1=> Antenna 1
 // <CS_SYNC_ANTENNA_2=> Antenna 2
+// <CS_SYNC_ANTENNA_3=> Antenna 3
+// <CS_SYNC_ANTENNA_4=> Antenna 4
 // <CS_SYNC_SWITCHING=> Switching
 // <i> Default: CS_SYNC_SWITCHING
 #define CS_INITIATOR_DEFAULT_CS_SYNC_ANTENNA_REQ  CS_SYNC_SWITCHING
@@ -360,7 +394,6 @@
 // <sl_bt_cs_chc3_shape_interleaved=> Ch3c shape interleaved
 // <i> Default: sl_bt_cs_ch3c_shape_hat
 #define CS_INITIATOR_DEFAULT_CH3C_SHAPE             sl_bt_cs_ch3c_shape_hat
-
 // </h>
 
 // </h>
@@ -422,16 +455,6 @@
 // Only one channel is supported
 // Default: 1
 #define CS_INITIATOR_DEFAULT_CONFIG_ID      1
-
-// Minimum subevent length. <1250..3999999>
-// Minimum suggested duration for each CS subevent in microseconds.
-// Default: 1250
-#define CS_INITIATOR_DEFAULT_MIN_SUBEVENT_LEN          1250
-
-// Maximum subevent length. <1250..3999999>
-// Maximum suggested duration for each CS subevent in microseconds.
-// Default: 3999999
-#define CS_INITIATOR_DEFAULT_MAX_SUBEVENT_LEN          3999999
 
 // Internal define to skip RTL processing
 #define CS_INITIATOR_INTERNAL_SKIP_RTL_PROCESS         0

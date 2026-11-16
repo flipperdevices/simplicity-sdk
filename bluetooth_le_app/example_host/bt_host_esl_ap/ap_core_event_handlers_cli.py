@@ -41,7 +41,6 @@ class CLIEventHandlersMixin:
             if evt.lib_status == elw.ESL_LIB_STATUS_CONN_FAILED:
                 if (
                     evt.sl_status == elw.SL_STATUS_BT_CTRL_AUTHENTICATION_FAILURE
-                    or evt.data == elw.ESL_LIB_CONNECTION_STATE_NEW_BOND_REQUIRED
                 ):  # handle advertisers bonded to different AP
                     self.log.info(
                         "Tag at address %s refused connection attempts - seemingly bonded to other AP",
@@ -50,13 +49,13 @@ class CLIEventHandlersMixin:
             elif evt.lib_status == elw.ESL_LIB_STATUS_CONN_TIMEOUT:
                 if evt.data == elw.ESL_LIB_CONNECTION_STATE_CONNECTING:
                     self.log.error(
-                        "Timeout occured on connection attempt to address %s",
+                        "Timeout occurred on connection attempt to address %s",
                         evt.node_id,
                     )
                 if evt.data == elw.ESL_LIB_CONNECTION_STATE_WRITE_CONTROL_POINT:
                     # The Tag object already cleared its connection handle until we reach to this point
                     self.log.error(
-                        "Timeout occured after writing ESL control point of deleted connection handle %s",
+                        "Timeout occurred after writing ESL control point of deleted connection handle %s",
                         evt.node_id,
                     )
             self.revert_auto_mode()

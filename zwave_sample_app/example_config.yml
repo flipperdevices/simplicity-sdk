@@ -1,6 +1,7 @@
 template:
   series2_z_wave_boards: &series2_z_wave_boards
     - brd2603a
+    - brd2603c
     - brd2705a
     - brd4204a
     - brd4204b
@@ -18,6 +19,7 @@ template:
     - .*zgm23.*
   z_wave_toolchains: &z_wave_toolchains
     - gcc
+    - llvm
   z_wave_ides: &z_wave_ides
     - makefile-ide
     - simplicity-ide
@@ -30,6 +32,7 @@ template:
   z_wave_boards: &z_wave_boards
     # Series2 must be the same as *series2_z_wave_boards
     - brd2603a
+    - brd2603c
     - brd2705a
     - brd4204a
     - brd4204b
