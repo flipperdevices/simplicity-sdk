@@ -1,10 +1,10 @@
 project_name: zigbee_minimal_rtos
-label: Zigbee - MinimalRtos
+label: Zigbee - SoC Minimal RTOS
 package: zigbee
 category: Zigbee Application
 quality: production
 
-description: This is test application with a bare minimum RTOS based Zigbee stack. This application is non-compliant since it does not have all the necessary component and configurations of a fully functional zigbee application. To build a standard zigbee application, please use the provided zigbee scenario application templates.
+description: Minimal RTOS-based Zigbee stack. Non-compliant; use zigbee scenario application templates for full zigbee applications.
 author: Silicon Laboratories, Inc.
 
 component:
@@ -25,8 +25,13 @@ component:
   # RTOS Components
   - id: zigbee_ipc
   - id: clock_manager
-  # Platform - enable LTO for gcc
+  # Platform - enable LTO for gcc and llvm
   - id: toolchain_gcc_lto
+    condition:
+      - toolchain_gcc
+  - id: toolchain_llvm_lto
+    condition:
+      - toolchain_llvm
 
 configuration:
   - name: SLI_ZIGBEE_PRIMARY_NETWORK_DEVICE_TYPE
@@ -93,6 +98,19 @@ configuration:
     value: 6000
     condition:
       - device_series_3
+  # On series 3 with LLVM and OTA storage, more RTOS stack to avoid stack overflow during token/OTA init
+  - name: SL_ZIGBEE_STACK_RTOS_TASK_STACK_SIZE
+    value: 8192
+    condition:
+      - device_series_3
+      - toolchain_llvm
+      - zigbee_ota_storage_simple_eeprom
+  - name: SL_ZIGBEE_APP_FRAMEWORK_RTOS_TASK_STACK_SIZE
+    value: 8192
+    condition:
+      - device_series_3
+      - toolchain_llvm
+      - zigbee_ota_storage_simple_eeprom
   - name: SL_ZIGBEE_AF_PLUGIN_ZCL_CLUSTER_DEFER_ATTRIBUTE_WRITES_TO_NVM_MS
     value: 2000
     condition:
@@ -232,4 +250,7 @@ tag:
   - hwfilter:device:device_supports_zigbee
   - hwfilter:ram:64k
   - hwfilter:board:simple_led:led0
+  - toolchain:gcc
+  - toolchain:iar
+  - toolchain:llvm
   

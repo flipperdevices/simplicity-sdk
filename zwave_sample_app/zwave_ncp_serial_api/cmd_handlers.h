@@ -30,10 +30,31 @@ cmd_handler_map_t;
 
 #define CMD_HANDLER_SECTION "zw_cmd_handlers"
 
-#define ZW_ADD_CMD(cmd)                                                                                                                          \
-  static void cmd_handler_fcn_##cmd(__attribute__((unused)) const comm_interface_frame_ptr frame); /* Prototype */                               \
-  static const cmd_handler_map_t cmd_handler_##cmd __attribute__((__used__, __section__(CMD_HANDLER_SECTION))) = { cmd, cmd_handler_fcn_##cmd }; \
+#define ZW_ADD_CMD(cmd)                                                                                                                            \
+  static void cmd_handler_fcn_##cmd(__attribute__((unused)) const comm_interface_frame_ptr frame); /* Prototype */                                 \
+  static const cmd_handler_map_t cmd_handler_##cmd __attribute__((__used__, __section__(CMD_HANDLER_SECTION))) = { (cmd), cmd_handler_fcn_##cmd }; \
   static void cmd_handler_fcn_##cmd(__attribute__((unused)) const comm_interface_frame_ptr frame)
+
+/**
+ * Non-payload overhead sizes for Send Data like commands.
+ * Used to check that inside dataLength field is consistent with actual frame length.
+ *
+ * The minimum required payload length for each command is:
+ *   variable_offset + OVERHEAD + dataLength
+ */
+
+/* nodeID + dataLength + txOptions + session_id */
+#define SEND_DATA_FRAME_OVERHEAD              4
+/* nodeID + dataLength + txOptions + txSecOptions + securityKey + txOptions2 + session_id */
+#define SEND_DATA_EX_FRAME_OVERHEAD           7
+/* numNodes + dataLength + txOptions + session_id (node list is variable) */
+#define SEND_DATA_MULTI_FRAME_OVERHEAD        4
+/* dataLength + txOptions + securityKey + groupId + session_id */
+#define SEND_DATA_MULTI_EX_FRAME_OVERHEAD     5
+/* srcNodeID + destNodeID + dataLength + txOptions + pRoute[4] + session_id */
+#define SEND_DATA_BRIDGE_FRAME_OVERHEAD       9
+/* srcNodeID + numNodes + dataLength + txOptions + session_id (node list is variable) */
+#define SEND_DATA_MULTI_BRIDGE_FRAME_OVERHEAD 5
 
 /**
  * Invoke command handler.
@@ -51,7 +72,7 @@ typedef bool (*cmd_foreach_callback_t)(cmd_handler_map_t const * const p_cmd_ent
  * Will stop if the callback returns true.
  *
  * @param callback Callback function to invoke.
- * @param context Context to pass on to the callback function.
+ * @param supported_cmds_mask Bitmask of supported commands to pass to the callback function.
  */
 void cmd_foreach(cmd_foreach_callback_t callback, uint8_t* supported_cmds_mask);
 

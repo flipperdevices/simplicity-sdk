@@ -44,6 +44,8 @@ component:
   - id: sl_main
   - id: sleeptimer
   - id: toolchain_gcc_lto
+    condition:
+      - toolchain_gcc
   - id: trustzone_nonsecure
   - id: tz_secure_key_library
 
@@ -152,9 +154,6 @@ post_build:
 
 tag:
   - companion:bootloader-apploader-secure
-  - hardware:device:flash:512
-  - hardware:device:ram:32
-  - hardware:rf:band:2400
   - hwfilter:device:device_series_2
   - hwfilter:device:device_supports_bluetooth
   - hwfilter:!device:device_security_vault

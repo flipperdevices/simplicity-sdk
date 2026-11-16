@@ -108,6 +108,7 @@ cs_procedure_state_t extract_cs_result_data(cs_initiator_t *initiator,
       = cs_result_content->cs_event->data.evt_cs_result.data.data;
     step_data_len
       = cs_result_content->cs_event->data.evt_cs_result.data.len;
+    initiator->subevents_per_procedure_counter++;
   } else {
     initiator->num_antenna_path
       = cs_result_content->cs_event->data.evt_cs_result_continue.num_antenna_paths;
@@ -181,7 +182,7 @@ cs_procedure_state_t extract_cs_result_data(cs_initiator_t *initiator,
     initiator->data.step_channels[initiator->data.num_steps]
       = step_header->step_channel;
     initiator->data.num_steps++;
-    if (data_src > data_src + step_data_len) {
+    if (data_src > step_data + step_data_len) {
       initiator_log_error(INSTANCE_PREFIX "Step data is partial" LOG_NL,
                           initiator->conn_handle);
       return CS_PROCEDURE_STATE_ABORTED;

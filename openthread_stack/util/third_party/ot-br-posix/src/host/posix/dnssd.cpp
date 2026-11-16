@@ -396,9 +396,14 @@ void DnssdPlatform::StopServiceResolver(const SrvResolver &aSrvResolver, const S
 
 void DnssdPlatform::StartTxtResolver(const TxtResolver &aTxtResolver, TxtCallbackPtr aCallbackPtr)
 {
-    auto &entryList = mTxtResolversMap[DnsServiceName(aTxtResolver.mServiceInstance, aTxtResolver.mServiceType)];
+    DnsServiceName serviceName(aTxtResolver.mServiceInstance, aTxtResolver.mServiceType);
 
-    entryList.AddIfAbsent(aTxtResolver.mInfraIfIndex, std::move(aCallbackPtr));
+    mTxtResolversMap[serviceName].AddIfAbsent(aTxtResolver.mInfraIfIndex, std::move(aCallbackPtr));
+
+    if (mServiceNameSubscriptions.find(serviceName) != mServiceNameSubscriptions.end())
+    {
+        ReplayResolvedServiceTxtIfAny(serviceName);
+    }
 
     PostServiceSubscriptionUpdateTask();
 }
@@ -454,9 +459,13 @@ void DnssdPlatform::HandleMdnsState(Mdns::Publisher::State aState)
 void DnssdPlatform::HandleDiscoveredService(const std::string                             &aType,
                                             const Mdns::Publisher::DiscoveredInstanceInfo &aInfo)
 {
-    otbr::DnssdPlatform::Get().ProcessServiceBrowsers(aType, aInfo);
-    otbr::DnssdPlatform::Get().ProcessServiceResolvers(aType, aInfo);
-    otbr::DnssdPlatform::Get().ProcessTxtResolvers(aType, aInfo);
+    std::string instanceName = DnsUtils::UnescapeInstanceName(aInfo.mName);
+
+    Get().mResolvedServiceInfoCache[DnsServiceName(instanceName, aType)] = aInfo;
+
+    Get().ProcessServiceBrowsers(aType, aInfo);
+    Get().ProcessServiceResolvers(aType, aInfo);
+    Get().ProcessTxtResolvers(aType, aInfo);
 }
 
 void DnssdPlatform::HandleDiscoveredHost(const std::string &aHostName, const Mdns::Publisher::DiscoveredHostInfo &aInfo)
@@ -550,6 +559,8 @@ void DnssdPlatform::ProcessIpAddrResolvers(const std::string                    
     std::vector<otPlatDnssdAddressAndTtl> addressAndTtls;
     auto                                  it = mIpAddrResolversMap.find(aHostName);
 
+    mResolvedHostInfoCache[DnsName(aHostName)] = aInfo;
+
     VerifyOrExit(mState == kStateReady);
 
     VerifyOrExit(it != mIpAddrResolversMap.end());
@@ -573,11 +584,45 @@ exit:
     return;
 }
 
+void DnssdPlatform::ReplayResolvedHostAddressesIfAny(const DnsName &aDnsName)
+{
+    auto cacheIt = mResolvedHostInfoCache.find(aDnsName);
+
+    VerifyOrExit(mState == kStateReady);
+    VerifyOrExit(cacheIt != mResolvedHostInfoCache.end());
+    VerifyOrExit(!cacheIt->second.mAddresses.empty());
+    VerifyOrExit(mHostSubscriptions.find(aDnsName) != mHostSubscriptions.end());
+
+    ProcessIpAddrResolvers(aDnsName.GetName(), cacheIt->second);
+
+exit:
+    return;
+}
+
+void DnssdPlatform::ReplayResolvedServiceTxtIfAny(const DnsServiceName &aServiceName)
+{
+    auto cacheIt = mResolvedServiceInfoCache.find(aServiceName);
+
+    VerifyOrExit(mState == kStateReady);
+    VerifyOrExit(cacheIt != mResolvedServiceInfoCache.end());
+    VerifyOrExit(mServiceNameSubscriptions.find(aServiceName) != mServiceNameSubscriptions.end());
+
+    ProcessTxtResolvers(aServiceName.GetType(), cacheIt->second);
+
+exit:
+    return;
+}
+
 void DnssdPlatform::StartAddressResolver(const AddressResolver &aAddressResolver, AddressCallbackPtr aCallbackPtr)
 {
-    auto &entryList = mIpAddrResolversMap[DnsName(aAddressResolver.mHostName)];
+    DnsName dnsName(aAddressResolver.mHostName);
 
-    entryList.AddIfAbsent(aAddressResolver.mInfraIfIndex, std::move(aCallbackPtr));
+    mIpAddrResolversMap[dnsName].AddIfAbsent(aAddressResolver.mInfraIfIndex, std::move(aCallbackPtr));
+
+    if (mHostSubscriptions.find(dnsName) != mHostSubscriptions.end())
+    {
+        ReplayResolvedHostAddressesIfAny(dnsName);
+    }
 
     PostHostSubscriptionUpdateTask();
 }
@@ -638,6 +683,7 @@ void DnssdPlatform::ExecuteServiceSubscriptionUpdate(void)
             mTxtResolversMap.find(*iter) == mTxtResolversMap.end())
         {
             mPublisher.UnsubscribeService(iter->GetType(), iter->GetInstance());
+            mResolvedServiceInfoCache.erase(*iter);
             iter = mServiceNameSubscriptions.erase(iter);
         }
         else
@@ -655,6 +701,7 @@ void DnssdPlatform::ExecuteServiceSubscriptionUpdate(void)
         {
             mServiceNameSubscriptions.insert(serviceName);
             mPublisher.SubscribeService(serviceName.GetType(), serviceName.GetInstance());
+            ReplayResolvedServiceTxtIfAny(serviceName);
         }
     }
     for (const auto &entry : mTxtResolversMap)
@@ -665,6 +712,7 @@ void DnssdPlatform::ExecuteServiceSubscriptionUpdate(void)
         {
             mServiceNameSubscriptions.insert(serviceName);
             mPublisher.SubscribeService(serviceName.GetType(), serviceName.GetInstance());
+            ReplayResolvedServiceTxtIfAny(serviceName);
         }
     }
 }
@@ -690,6 +738,7 @@ void DnssdPlatform::ExecuteHostSubscriptionUpdate(void)
         if (mIpAddrResolversMap.find(dnsName) == mIpAddrResolversMap.end())
         {
             mPublisher.UnsubscribeHost(dnsName.GetName());
+            mResolvedHostInfoCache.erase(dnsName);
             iter = mHostSubscriptions.erase(iter);
         }
         else
@@ -707,6 +756,7 @@ void DnssdPlatform::ExecuteHostSubscriptionUpdate(void)
         {
             mHostSubscriptions.insert(dnsName);
             mPublisher.SubscribeHost(dnsName.GetName());
+            ReplayResolvedHostAddressesIfAny(dnsName);
         }
     }
 }

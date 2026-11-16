@@ -84,6 +84,7 @@ requires:
 - name: "bgapi_protocol"
 - name: "hal_system"
 - name: "sleeptimer"
+- name: "slist"
 - name: "rail_lib"
 - name: "device_supports_bluetooth"
 - name: "component_catalog"
@@ -101,7 +102,7 @@ requires:
 - name: "memory_manager"
 - name: "memory_profiler_api"
 - name: "bluetooth_device_compatibility"
-- name: "bluetooth_controller"
+- name: "bluetooth_agents_host"
 recommends:
 - id: "rail_lib_singleprotocol"
   vendor: silabs

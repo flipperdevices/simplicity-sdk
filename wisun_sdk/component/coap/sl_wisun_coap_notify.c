@@ -165,12 +165,8 @@ static osThreadId_t _notify_thr = NULL;
 static const osThreadAttr_t _notify_thr_attr = {
   .name        = "CoAP-Notification-Service",
   .attr_bits   = osThreadDetached,
-  .cb_mem      = NULL,
-  .cb_size     = 0U,
-  .stack_mem   = NULL,
   .stack_size  = app_stack_size_word_to_byte(SL_WISUN_COAP_NOTIFY_STACK_SIZE_WORD),
-  .priority    = osPriorityNormal7,
-  .tz_module   = 0U
+  .priority    = osPriorityNormal7
 };
 
 /// Schedule parameters
@@ -324,7 +320,7 @@ void sl_wisun_coap_notify_print_notifications(void)
 
   while (slot != NULL) {
     notify = (sl_wisun_coap_notify_t *)slot->start_addr;
-    printf("%s (%lu/%lu)\n", notify->id, notify->tick_ms, notify->schedule_time_ms);
+    printf("%s (%"PRIu32"/%"PRIu32")\n", notify->id, notify->tick_ms, notify->schedule_time_ms);
     slot = slot->next;
   }
 
@@ -362,18 +358,21 @@ sl_status_t sl_wisun_coap_notify_send_notification(const sl_wisun_coap_notify_t 
   // Check condition to send
   if (notify->condition_cb != NULL
       && !notify->condition_cb(notify)) {
+    sl_wisun_coap_destroy_packet(pkt);
     return SL_STATUS_OK;
-  }
-
-  // Create non-blocking socket
-  sockid = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
-  if (sockid == SOCKET_RETVAL_ERROR) {
-    return SL_STATUS_FAIL;
   }
 
   // Calculate CoAP payload size
   payload_size = sl_wisun_coap_builder_calc_size(pkt);
   if (!payload_size || payload_size > SL_WISUN_COAP_NOTIFY_SOCK_BUFF_SIZE) {
+    sl_wisun_coap_destroy_packet(pkt);
+    return SL_STATUS_FAIL;
+  }
+
+  // Create non-blocking socket
+  sockid = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+  if (sockid == SOCKET_RETVAL_ERROR) {
+    sl_wisun_coap_destroy_packet(pkt);
     return SL_STATUS_FAIL;
   }
 
@@ -382,7 +381,10 @@ sl_status_t sl_wisun_coap_notify_send_notification(const sl_wisun_coap_notify_t 
 
   // Build CoAP payload packet
   if (sl_wisun_coap_builder(_notify_sock_buff, pkt) < 0L) {
-    _coap_notify_mutex_release_and_return_val(SL_STATUS_FAIL);
+    _coap_notify_mtx_release();
+    close(sockid);
+    sl_wisun_coap_destroy_packet(pkt);
+    return SL_STATUS_FAIL;
   }
 
   // Send packet to the remote host
@@ -392,7 +394,10 @@ sl_status_t sl_wisun_coap_notify_send_notification(const sl_wisun_coap_notify_t 
                (uint32_t)payload_size, 0L,
                (const struct sockaddr *) &notify->remote_addr,
                sizeof(sockaddr_in6_t)) == SOCKET_RETVAL_ERROR) {
-      _coap_notify_mutex_release_and_return_val(SL_STATUS_FAIL);
+      _coap_notify_mtx_release();
+      close(sockid);
+      sl_wisun_coap_destroy_packet(pkt);
+      return SL_STATUS_FAIL;
     }
     for (uint8_t ack_timeout = 0U; ack_timeout < max_retransmit - 1U; ++ack_timeout) {
       osDelay(SL_WISUN_COAP_NOTIFY_TIMEQUANTA);
@@ -416,6 +421,7 @@ sl_status_t sl_wisun_coap_notify_send_notification(const sl_wisun_coap_notify_t 
           finished = true;
           break;
         }
+        sl_wisun_coap_destroy_packet(ack_pkt);
       }
     }
     if (finished) {
@@ -441,7 +447,7 @@ sl_status_t sl_wisun_coap_notify_send_notification(const sl_wisun_coap_notify_t 
 #if SL_WISUN_COAP_NOTIFY_SERVICE_ENABLE
 SL_WEAK void sl_wisun_coap_notify_error_hnd(const sl_wisun_coap_notify_t * const notify)
 {
-  printf("[CoAP Notify Error: %s (%lu/%lu)]\n", notify->id, notify->tick_ms, notify->schedule_time_ms);
+  printf("[CoAP Notify Error: %s (%"PRIu32"/%"PRIu32")]\n", notify->id, notify->tick_ms, notify->schedule_time_ms);
 }
 #endif
 // -----------------------------------------------------------------------------

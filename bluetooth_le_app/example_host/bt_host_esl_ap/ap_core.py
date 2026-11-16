@@ -52,10 +52,12 @@ from ap_core_tag_commands import TagCommandsMixin
 from ap_core_pawr_responses import PAWRResponsesMixin
 from ap_core_helpers import HelpersMixin
 from ap_core_scan import ScanMixin
+from ap_core_adv_dedup import AdvDedupMixin
 from ap_core_event_handlers_common import CommonEventHandlersMixin
 from ap_core_event_handlers_cli import CLIEventHandlersMixin
 from ap_core_event_handlers_auto import AutoEventHandlersMixin
 from ap_core_event_handlers_demo import DemoEventHandlersMixin
+from ap_core_event_handlers_itp import ImageThroughputEventHandlersMixin
 
 # sanity check
 if ESL_MAX_TAGS_IN_GROUP < ESL_MAX_TAGS_IN_AUTO_GROUP:
@@ -71,6 +73,7 @@ class AccessPoint(
     CLIEventHandlersMixin,
     AutoEventHandlersMixin,
     DemoEventHandlersMixin,
+    ImageThroughputEventHandlersMixin,
     # CLI commands
     CLICommandsMixin,
     # PAwR control
@@ -80,6 +83,7 @@ class AccessPoint(
     # PAwR response handling and helpers
     PAWRResponsesMixin,
     ScanMixin,
+    AdvDedupMixin,
 ):
     """Access Point"""
 
@@ -97,6 +101,7 @@ class AccessPoint(
         self.lib_connection_mode = elw.ESL_LIB_CONNECTION_MODE_SINGLE
         self.skip_mode_evt_after_boot = False
         self.demo_mode = demo_mode
+        self.image_throughput_test = False
         self.demo_controller_connected = False
         self.evt_dispatcher = esl_lib.EventDispatcher()
         self.event_handler_prefix_list = [""]
@@ -112,6 +117,7 @@ class AccessPoint(
         else:
             self.log.warning("Starting with NCP encryption disabled!")
 
+        self._init_adv_dedup_state()
         self.lib = LibProxy(esl_lib.Lib(config), self)
 
         self.rssi_threshold = RSSI_THRESHOLD
@@ -161,6 +167,7 @@ class AccessPoint(
         # State of connection count for demo/auto modes
         self.max_conn_count_reached = False
         self.bonding_finished = True
+        self.next_subevent = 0
 
         self.stop_event = threading.Event()
         self.consumer = threading.Thread(target=self.dequeue, daemon=True)
@@ -199,6 +206,8 @@ class AccessPoint(
             self.event_handler_prefix_list.append("auto_")
         if self.demo_mode:
             self.event_handler_prefix_list.append("demo_")
+        if self.image_throughput_test:
+            self.event_handler_prefix_list.append("itp_")
         self.subscribe_event_handlers()
 
     def revert_auto_mode(self):
@@ -275,7 +284,7 @@ class AccessPoint(
             elif hasattr(event, "connection_handle"):
                 tag = self.tag_db.find(event.connection_handle)
             else:
-                tag = None  # prevent sending unsolicited / mismatching events to tag found in previous cylcle iteration!
+                tag = None  # prevent sending unsolicited / mismatching events to tag found in previous cycle iteration!
 
             # skip tag events processing if stop is in progress (e.g. due boot timeout)
             if not self.stop_event.is_set() and tag is not None:

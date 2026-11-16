@@ -30,8 +30,8 @@
  *   This file contains definitions a spinel interface to the OpenThread stack.
  */
 
-#ifndef NCP_BASE_HPP_
-#define NCP_BASE_HPP_
+#ifndef OT_NCP_NCP_BASE_HPP_
+#define OT_NCP_NCP_BASE_HPP_
 
 #include "openthread-core-config.h"
 
@@ -116,6 +116,14 @@ public:
      * @returns Pointer to the single NCP instance.
      */
     static NcpBase *GetNcpInstance(void);
+
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE && \
+    OPENTHREAD_CONFIG_NAT64_FAVORED_PREFIX_NOTIFICATION_ENABLE
+    void HandleNat64FavoredPrefixChanged(void);
+
+    static void HandleNotifyNat64FavoredPrefixTask(Tasklet &aTasklet);
+    void        NotifyNat64FavoredPrefix(void);
+#endif
 
     /**
      * Returns an IID for the given instance
@@ -325,12 +333,106 @@ public:
     void DnssdStopBrowser(const otPlatDnssdBrowser *aBrowser);
 
     /**
+     * Starts a service resolver.
+     *
+     * @param[in] aResolver  The resolver to be started.
+     */
+    void DnssdStartSrvResolver(const otPlatDnssdSrvResolver *aResolver);
+
+    /**
+     * Stops a service resolver.
+     *
+     * @param[in] aResolver  The resolver to be stopped.
+     */
+    void DnssdStopSrvResolver(const otPlatDnssdSrvResolver *aResolver);
+
+    /**
+     * Starts a TXT resolver.
+     *
+     * @param[in] aResolver  The resolver to be started.
+     */
+    void DnssdStartTxtResolver(const otPlatDnssdTxtResolver *aResolver);
+
+    /**
+     * Stops a TXT resolver.
+     *
+     * @param[in] aResolver  The resolver to be stopped.
+     */
+    void DnssdStopTxtResolver(const otPlatDnssdTxtResolver *aResolver);
+
+    /**
+     * Starts an IPv6 address resolver.
+     *
+     * @param[in] aResolver  The resolver to be started.
+     */
+    void DnssdStartIp6AddressResolver(const otPlatDnssdAddressResolver *aResolver);
+
+    /**
+     * Stops an IPv6 address resolver.
+     *
+     * @param[in] aResolver  The resolver to be stopped.
+     */
+    void DnssdStopIp6AddressResolver(const otPlatDnssdAddressResolver *aResolver);
+
+    /**
+     * Starts an IPv4 address resolver.
+     *
+     * @param[in] aResolver  The resolver to be started.
+     */
+    void DnssdStartIp4AddressResolver(const otPlatDnssdAddressResolver *aResolver);
+
+    /**
+     * Stops an IPv4 address resolver.
+     *
+     * @param[in] aResolver  The resolver to be stopped.
+     */
+    void DnssdStopIp4AddressResolver(const otPlatDnssdAddressResolver *aResolver);
+
+    /**
      * Gets the Dnssd state.
      *
      * Returns the platform dnssd state.
      */
     otPlatDnssdState DnssdGetState(void);
 #endif // OPENTHREAD_FTD && OPENTHREAD_CONFIG_NCP_DNSSD_ENABLE && OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE
+
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE
+    /**
+     * Returns whether the host DNS upstream resolver is available.
+     */
+    bool DnsUpstreamIsAvailable(void) const { return mDnsUpstreamAvailable; }
+
+    /**
+     * Forwards a DNS upstream query to the host.
+     *
+     * @param[in] aTxn    The upstream query transaction.
+     * @param[in] aQuery  The DNS query message.
+     */
+    void DnsUpstreamQueryStart(otPlatDnsUpstreamQuery *aTxn, const otMessage *aQuery);
+
+    /**
+     * Cancels a DNS upstream query on the host.
+     *
+     * @param[in] aTxn  The upstream query transaction.
+     */
+    void DnsUpstreamQueryCancel(otPlatDnsUpstreamQuery *aTxn);
+
+    /**
+     * Handles a DNS upstream response from the host.
+     *
+     * @param[in] aTxnIndex     The transaction index.
+     * @param[in] aResponse     The DNS response wire payload.
+     * @param[in] aResponseLen  The DNS response wire payload length.
+     */
+    void DnsUpstreamResponseReceived(uint8_t aTxnIndex, const uint8_t *aResponse, uint16_t aResponseLen);
+
+    /**
+     * Sets host DNS upstream resolver availability.
+     *
+     * @param[in] aAvailable  Whether the host resolver is available.
+     */
+    void DnsUpstreamSetAvailable(bool aAvailable) { mDnsUpstreamAvailable = aAvailable; }
+#endif // OPENTHREAD_FTD && OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE
 
 protected:
     static constexpr uint8_t kBitsPerByte = 8; ///< Number of bits in a byte.
@@ -572,6 +674,10 @@ protected:
                                        void         *aContext);
     void HandleUdpForwardStream(otMessage *aMessage, uint16_t aPeerPort, otIp6Address &aPeerAddr, uint16_t aPort);
 #endif // OPENTHREAD_CONFIG_UDP_FORWARD_ENABLE
+#if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
+    static void HandleTrelStateChanged(void *aContext);
+    void        HandleTrelStateChanged(void);
+#endif
 
 #endif // OPENTHREAD_MTD || OPENTHREAD_FTD
 
@@ -662,13 +768,15 @@ protected:
     static unsigned int ConvertLogRegion(otLogRegion aLogRegion);
 
 #if OPENTHREAD_CONFIG_DIAG_ENABLE
-    static void HandleDiagOutput_Jump(const char *aFormat, va_list aArguments, void *aContext);
-    void        HandleDiagOutput(const char *aFormat, va_list aArguments);
+    static void HandleDiagOutput_Jump(const char *aFormat, va_list aArguments, void *aContext)
+        OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(1, 0);
+    void HandleDiagOutput(const char *aFormat, va_list aArguments) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(2, 0);
 #endif
 
 #if OPENTHREAD_CONFIG_NCP_CLI_STREAM_ENABLE
-    static int HandleCliOutput(void *aContext, const char *aFormat, va_list aArguments);
-    int        HandleCliOutput(const char *aFormat, va_list aArguments);
+    static int HandleCliOutput(void *aContext, const char *aFormat, va_list aArguments)
+        OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(2, 0);
+    int HandleCliOutput(const char *aFormat, va_list aArguments) OT_TOOL_PRINTF_STYLE_FORMAT_ARG_CHECK(2, 0);
 #endif
 
 #if OPENTHREAD_ENABLE_NCP_VENDOR_HOOK
@@ -766,7 +874,11 @@ protected:
     bool            mDiscoveryScanEnableFiltering;
     uint16_t        mDiscoveryScanPanId;
 
-    Tasklet         mUpdateChangedPropsTask;
+    Tasklet mUpdateChangedPropsTask;
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE && \
+    OPENTHREAD_CONFIG_NAT64_FAVORED_PREFIX_NOTIFICATION_ENABLE
+    Tasklet mNotifyNat64FavoredPrefixTask;
+#endif
     uint32_t        mThreadChangedFlags;
     ChangedPropsSet mChangedPropsSet;
 
@@ -801,7 +913,9 @@ protected:
 #if OPENTHREAD_CONFIG_MLE_STEERING_DATA_SET_OOB_ENABLE
     otExtAddress mSteeringDataAddress;
 #endif
+#if OPENTHREAD_CONFIG_REFERENCE_DEVICE_ENABLE
     uint8_t mPreferredRouteId;
+#endif
 #endif
     uint8_t mCurCommandIid;
 
@@ -866,6 +980,11 @@ protected:
 
 #if OPENTHREAD_CONFIG_NCP_DNSSD_ENABLE && OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE
 
+    static constexpr uint16_t kDnssdMaxAddressResultEntries = OPENTHREAD_CONFIG_NCP_DNSSD_MAX_ADDRESS_RESULT_ENTRIES;
+
+    static_assert(kDnssdMaxAddressResultEntries >= 1,
+                  "OPENTHREAD_CONFIG_NCP_DNSSD_MAX_ADDRESS_RESULT_ENTRIES must be >= 1");
+
     template <typename DnssdObjType> struct DnssdDiscoveryPropKeyFor;
 
     template <typename DnssdObjType>
@@ -886,7 +1005,7 @@ protected:
         SuccessOrExit(error = mEncoder.EndFrame());
 
     exit:
-        if (error != OT_ERROR_NONE)
+        if (error != OT_ERROR_NONE && aCallback != nullptr)
         {
             aCallback(mInstance, aRequestId, error);
         }
@@ -914,8 +1033,28 @@ protected:
         return;
     }
 
+    void DnssdUpdateAddressResolverDiscovery(const otPlatDnssdAddressResolver *aDiscovery,
+                                             bool                              aStart,
+                                             spinel_prop_key_t                 aPropKey);
+
     otPlatDnssdState mDnssdState;
 #endif // OPENTHREAD_CONFIG_NCP_DNSSD_ENABLE && OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE
+
+#if OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE
+    otError DnsUpstreamEmitQuery(uint8_t aTxnIndex, const uint8_t *aQuery, uint16_t aQueryLen);
+    void    DnsUpstreamEmitCancel(uint8_t aTxnIndex);
+
+    bool mDnsUpstreamAvailable;
+#endif // OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE
+
+#if OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
+    void DnsUpstreamEmitRdnssServers(void);
+    void DnsUpstreamRegisterRdnssCallback(void);
+
+    static void HandleBorderRoutingRdnssChanged(void *aContext);
+
+    bool mDnsUpstreamRdnssCallbackRegistered;
+#endif // OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
 
 #if OPENTHREAD_CONFIG_BACKBONE_ROUTER_ENABLE && OPENTHREAD_CONFIG_BACKBONE_ROUTER_MULTICAST_ROUTING_ENABLE
     static void HandleBackboneRouterMulticastListenerEvent(void                                  *aContext,
@@ -932,13 +1071,6 @@ protected:
 
 #endif // OPENTHREAD_FTD
 
-#if OPENTHREAD_FTD || OPENTHREAD_MTD
-#if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
-    static void HandleTrelStateChange(void *aContext);
-    void        HandleTrelStateChange(void);
-#endif
-#endif
-
 #if OPENTHREAD_CONFIG_DIAG_ENABLE
     char    *mDiagOutput;
     uint16_t mDiagOutputLen;
@@ -950,9 +1082,19 @@ template <> struct NcpBase::DnssdDiscoveryPropKeyFor<otPlatDnssdBrowser>
 {
     static constexpr spinel_prop_key_t Key = SPINEL_PROP_DNSSD_BROWSER;
 };
+
+template <> struct NcpBase::DnssdDiscoveryPropKeyFor<otPlatDnssdSrvResolver>
+{
+    static constexpr spinel_prop_key_t Key = SPINEL_PROP_DNSSD_SRV_RESOLVER;
+};
+
+template <> struct NcpBase::DnssdDiscoveryPropKeyFor<otPlatDnssdTxtResolver>
+{
+    static constexpr spinel_prop_key_t Key = SPINEL_PROP_DNSSD_TXT_RESOLVER;
+};
 #endif
 
 } // namespace Ncp
 } // namespace ot
 
-#endif // NCP_BASE_HPP_
+#endif // OT_NCP_NCP_BASE_HPP_

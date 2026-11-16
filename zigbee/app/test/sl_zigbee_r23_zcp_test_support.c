@@ -21,6 +21,7 @@
 #include "stack/include/security.h"
 #include "stack/include/zigbee-device-stack.h"
 #include "aps-keys.h"
+#include "stack/include/pro_compliance_stack_interface.h"
 #include "stack/include/sl_zigbee_zdo_dlk_negotiation.h"
 #include "stack/include/sl_zigbee_zdo_security.h"
 #include "stack/include/sl_zigbee_zdo_management.h"
@@ -45,8 +46,6 @@
 #include "stack/core/sli_zigbee_tlv_core.h"
 
 #include "stack/include/sl_zigbee_zdo_configuration.h"
-
-#include "stack/include/pro_compliance_stack_interface.h"
 
 static sl_zigbee_dlk_supported_negotiation_method gu_dlk_override_supported_methods = DLK_PROTOCOL_MASK_RESERVED;
 static sl_zigbee_dlk_negotiation_supported_shared_secret_source gu_dlk_override_supported_secrets = DLK_SECRET_MASK_RESERVED;
@@ -397,7 +396,16 @@ void start_key_update_command(sl_cli_command_arg_t *arguments)
   }
   sl_zigbee_dlk_negotiation_method selected_method = sl_cli_get_argument_uint8(arguments, 1);
   sl_zigbee_dlk_negotiation_shared_secret_source selected_secret = sl_cli_get_argument_uint8(arguments, 2);
-  sl_status_t status = sl_zigbee_zdo_dlk_start_key_update(&target, selected_method, selected_secret);
+  sl_status_t status;
+  if (sl_cli_get_argument_count(arguments) >= 4) {
+    bool use_encrypt = (bool) sl_cli_get_argument_uint8(arguments, 3);
+    status = slx_zigbee_zdo_dlk_start_key_update_with_aps_encryption(&target,
+                                                                     selected_method,
+                                                                     selected_secret,
+                                                                     use_encrypt);
+  } else {
+    status = sl_zigbee_zdo_dlk_start_key_update(&target, selected_method, selected_secret);
+  }
   sl_zigbee_core_debug_println("ZDO Start Key Update Request: 0x%02X", status);
 }
 
@@ -733,7 +741,7 @@ void tc_backup_restore(sl_cli_command_arg_t *arguments)
                                                &hashed_key);        // Set the hash key in the key slot for the same device
       slx_zigbee_insecure_debug_generate_trace(
         SLX_ZIGBEE_INSECURE_DEBUG_NWK_REPORT_KEY_PACKET,
-        (void *) hashed_key.key
+        (uint8_t *) hashed_key.key
         );
     }
   }
@@ -1234,17 +1242,17 @@ void exportTcBackupData(sl_cli_command_arg_t *arguments)
     sl_zigbee_core_debug_print("%s Key Data ", type_str);
     sl_zigbee_core_debug_print(
       MACRO_FMT_HEX_EIGHT,
-      key_data[0], key_data[1],
-      key_data[2], key_data[3],
-      key_data[4], key_data[5],
-      key_data[6], key_data[7]
+      key_data->key[0], key_data->key[1],
+      key_data->key[2], key_data->key[3],
+      key_data->key[4], key_data->key[5],
+      key_data->key[6], key_data->key[7]
       );
     sl_zigbee_core_debug_print(
       MACRO_FMT_HEX_EIGHT,
-      key_data[8], key_data[9],
-      key_data[10], key_data[11],
-      key_data[12], key_data[13],
-      key_data[14], key_data[15]
+      key_data->key[8], key_data->key[9],
+      key_data->key[10], key_data->key[11],
+      key_data->key[12], key_data->key[13],
+      key_data->key[14], key_data->key[15]
       );
     sl_zigbee_core_debug_println("");
   }

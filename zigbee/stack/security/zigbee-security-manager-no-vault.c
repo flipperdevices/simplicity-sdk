@@ -23,6 +23,7 @@
 #if !defined(SL_CATALOG_TOKEN_MANAGER_PRESENT)
 #define DEFINETYPES
 #endif
+#include "stack/include/sl_zigbee_token.h"
 #include "stack/config/sl_zigbee_token_defines.h"
 #include "sl_token_manager_api.h"
 #include "stack/platform/micro/aes.h"
@@ -245,7 +246,10 @@ sl_status_t zb_sec_man_fetch_zll_key(sl_zigbee_sec_man_context_t* context,
                                      sl_zigbee_sec_man_key_t* plaintext_key)
 {
   tokTypeStackZllSecurity zllSecurityToken;
-  (void)sl_token_manager_get_data(COMMON_TOKEN_STACK_ZLL_SECURITY, (void *)&zllSecurityToken, sizeof(tokTypeStackZllSecurity));
+  sl_status_t tok_st = slx_zigbee_token_manager_get_data(COMMON_TOKEN_STACK_ZLL_SECURITY, (void *)&zllSecurityToken, sizeof(tokTypeStackZllSecurity));
+  if (tok_st != SL_STATUS_OK) {
+    return tok_st;
+  }
   if (context->core_key_type == SL_ZB_SEC_MAN_KEY_TYPE_ZLL_ENCRYPTION_KEY) {
     memmove(plaintext_key->key,
             zllSecurityToken.encryptionKey,
@@ -262,7 +266,10 @@ sl_status_t zb_sec_man_store_zll_key(sl_zigbee_sec_man_context_t* context,
                                      const sl_zigbee_sec_man_key_t* plaintext_key)
 {
   tokTypeStackZllSecurity zllSecurityToken;
-  (void)sl_token_manager_get_data(COMMON_TOKEN_STACK_ZLL_SECURITY, (void *)&zllSecurityToken, sizeof(tokTypeStackZllSecurity));
+  sl_status_t tok_st = slx_zigbee_token_manager_get_data(COMMON_TOKEN_STACK_ZLL_SECURITY, (void *)&zllSecurityToken, sizeof(tokTypeStackZllSecurity));
+  if (tok_st != SL_STATUS_OK) {
+    return tok_st;
+  }
 
   if (context->core_key_type == SL_ZB_SEC_MAN_KEY_TYPE_ZLL_ENCRYPTION_KEY) {
     memmove(zllSecurityToken.encryptionKey,
@@ -273,9 +280,12 @@ sl_status_t zb_sec_man_store_zll_key(sl_zigbee_sec_man_context_t* context,
             plaintext_key->key,
             SL_ZIGBEE_ENCRYPTION_KEY_SIZE);
   }
-  (void)sl_token_manager_set_data(COMMON_TOKEN_STACK_ZLL_SECURITY,
-                                  (void *)&zllSecurityToken,
-                                  sizeof(tokTypeStackZllSecurity));
+  tok_st = slx_zigbee_token_manager_set_data(COMMON_TOKEN_STACK_ZLL_SECURITY,
+                                                        (void *)&zllSecurityToken,
+                                                        sizeof(tokTypeStackZllSecurity));
+  if (tok_st != SL_STATUS_OK) {
+    return tok_st;
+  }
   return SL_STATUS_OK;
 }
 #endif // defined(SL_CATALOG_ZIGBEE_LIGHT_LINK_PRESENT) || defined(SL_ZIGBEE_TEST)
@@ -288,11 +298,17 @@ sl_status_t zb_sec_man_fetch_gp_key(sl_zigbee_sec_man_context_t* context,
 
   if (context->core_key_type == SL_ZB_SEC_MAN_KEY_TYPE_GREEN_POWER_PROXY_TABLE_KEY) {
     tokTypeStackGpProxyTableEntry tok;
-    (void)sl_token_manager_get_data(COMMON_TOKEN_STACK_GP_PROXY_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    sl_status_t tok_st = slx_zigbee_token_manager_get_data(COMMON_TOKEN_STACK_GP_PROXY_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    if (tok_st != SL_STATUS_OK) {
+      return tok_st;
+    }
     memmove(plaintext_key->key, tok.gpdKey, SL_ZIGBEE_ENCRYPTION_KEY_SIZE);
   } else {
     tokTypeStackGpSinkTableEntry tok;
-    (void)sl_token_manager_get_data(COMMON_TOKEN_STACK_GP_SINK_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    sl_status_t tok_st = slx_zigbee_token_manager_get_data(COMMON_TOKEN_STACK_GP_SINK_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpSinkTableEntry));
+    if (tok_st != SL_STATUS_OK) {
+      return tok_st;
+    }
     memmove(plaintext_key->key, tok.gpdKey, SL_ZIGBEE_ENCRYPTION_KEY_SIZE);
   }
   return SL_STATUS_OK;
@@ -304,14 +320,26 @@ sl_status_t zb_sec_man_store_gp_key(sl_zigbee_sec_man_context_t* context,
   uint8_t index = context->key_index;
   if (context->core_key_type == SL_ZB_SEC_MAN_KEY_TYPE_GREEN_POWER_PROXY_TABLE_KEY) {
     tokTypeStackGpProxyTableEntry tok;
-    (void)sl_token_manager_get_data(COMMON_TOKEN_STACK_GP_PROXY_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    sl_status_t tok_st = slx_zigbee_token_manager_get_data(COMMON_TOKEN_STACK_GP_PROXY_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    if (tok_st != SL_STATUS_OK) {
+      return tok_st;
+    }
     memmove(tok.gpdKey, plaintext_key->key, SL_ZIGBEE_ENCRYPTION_KEY_SIZE);
-    (void)sl_token_manager_set_data(COMMON_TOKEN_STACK_GP_PROXY_TABLE +  index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    tok_st = slx_zigbee_token_manager_set_data(COMMON_TOKEN_STACK_GP_PROXY_TABLE +  index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    if (tok_st != SL_STATUS_OK) {
+      return tok_st;
+    }
   } else {
     tokTypeStackGpSinkTableEntry tok;
-    (void)sl_token_manager_get_data(COMMON_TOKEN_STACK_GP_SINK_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    sl_status_t tok_st = slx_zigbee_token_manager_get_data(COMMON_TOKEN_STACK_GP_SINK_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpSinkTableEntry));
+    if (tok_st != SL_STATUS_OK) {
+      return tok_st;
+    }
     memmove(tok.gpdKey, plaintext_key->key, SL_ZIGBEE_ENCRYPTION_KEY_SIZE);
-    (void)sl_token_manager_set_data(COMMON_TOKEN_STACK_GP_SINK_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpProxyTableEntry));
+    tok_st = slx_zigbee_token_manager_set_data(COMMON_TOKEN_STACK_GP_SINK_TABLE + index, (void *)&tok, sizeof(tokTypeStackGpSinkTableEntry));
+    if (tok_st != SL_STATUS_OK) {
+      return tok_st;
+    }
   }
   return SL_STATUS_OK;
 }
@@ -676,7 +704,16 @@ static sl_status_t zb_sec_man_calc_encrypt_mic(uint8_t* nonce,
   uint16_t chunklen;
 
   chunklen = encryption_start_index;
-  encryptNonce(nonce, 0x49, length - encryption_start_index, encryptionBlock);
+  // CCM* B0 flags (NIST SP 800-38C):
+  //   bit 6:    Adata = 1, authenticated data is present
+  //   bits 5-3: (M - 2) / 2, where M is the MIC length in bytes
+  //   bits 2-0: L - 1 = 1, the payload length field is 2 bytes
+  // A 4-byte MIC encodes (4 - 2) / 2 = 1, so the flags byte is
+  // 0x40 | 0x08 | 0x01 = 0x49. An 8-byte MIC encodes (8 - 2) / 2 = 3,
+  // so the flags byte is 0x40 | 0x18 | 0x01 = 0x59. Those three bits
+  // hold every even MIC length CCM allows, 4 through 16.
+  uint8_t flags = (uint8_t)(0x41u | (((stored_mic_length - 2u) / 2u) << 3));
+  encryptNonce(nonce, flags, length - encryption_start_index, encryptionBlock);
   // first two bytes are the 16-bit representation of the frame length,
   // high byte first
   encryptionBlock[0] ^= HIGH_BYTE(encryption_start_index);

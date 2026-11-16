@@ -39,6 +39,24 @@
 #include "btl_reset_info.h"
 #endif
 
+#if defined(BTL_ENFORCE_GLITCH_MITIGATION) && (BTL_ENFORCE_GLITCH_MITIGATION == 1)
+#include "core/btl_glitch_mitigation.h"
+#endif
+
+#if defined(BTL_SMP_SUPPORT)
+#include "btl_smp_cfg.h"
+
+static void storage_get_smp_switch_page_bases(uint32_t *page1Base, uint32_t *page2Base)
+{
+  if (page1Base != NULL) {
+    *page1Base = BTL_SMP_PAGE_1_BASE;
+  }
+  if (page2Base != NULL) {
+    *page2Base = BTL_SMP_PAGE_2_BASE;
+  }
+}
+#endif
+
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
@@ -80,6 +98,11 @@ const BootloaderStorageFunctions_t storageFunctions = {
   .eraseRaw = &storage_eraseRaw,
   // Get configured DMA channel
   .getDMAchannel = &storage_getDMAchannel,
+#if defined(BTL_SMP_SUPPORT)
+  .getSmpSwitchPageBases = &storage_get_smp_switch_page_bases,
+#else
+  .getSmpSwitchPageBases = NULL,
+#endif
 };
 
 #if defined(BTL_PARSER_SUPPORT_DELTA_DFU)
@@ -265,11 +288,19 @@ int32_t storage_initParseSlot(uint32_t                  slotId,
     return retval;
   }
 
+#if defined(BTL_ENFORCE_GLITCH_MITIGATION) && (BTL_ENFORCE_GLITCH_MITIGATION == 1)
+  BTL_SEC_ASSERT_EQUAL(retval, BOOTLOADER_OK);
+#endif
+
   BootloaderStorageSlot_t slot;
   retval = storage_getSlotInfo(slotId, &slot);
   if (retval != BOOTLOADER_OK) {
     return retval;
   }
+
+#if defined(BTL_ENFORCE_GLITCH_MITIGATION) && (BTL_ENFORCE_GLITCH_MITIGATION == 1)
+  BTL_SEC_ASSERT_EQUAL(retval, BOOTLOADER_OK);
+#endif
 
   context->slotId = slotId;
   context->slotSize = slot.length;
@@ -491,10 +522,22 @@ static bool read_patch(size_t nbyte, void *out_buf, void *user_ctx)
 }
 
 // Function to init the callback stream struct
-void delta_dfu_init(struct callback_streams *user_ctx)
+int32_t delta_dfu_init(struct callback_streams *user_ctx, uint32_t slotId)
 {
+  int32_t status;
+
   storage_getInfo(&user_ctx->storageInfo);
-  storage_getSlotInfo(0, &user_ctx->slotInfo);
+  status = storage_getSlotInfo(slotId, &user_ctx->slotInfo);
+  if (status != BOOTLOADER_OK) {
+    return status;
+  }
+  BTL_DEBUG_PRINT("DDFU slot ");
+  BTL_DEBUG_PRINT_WORD_HEX(slotId);
+  BTL_DEBUG_PRINT(" addr ");
+  BTL_DEBUG_PRINT_WORD_HEX(user_ctx->slotInfo.address);
+  BTL_DEBUG_PRINT(" len ");
+  BTL_DEBUG_PRINT_WORD_HEX(user_ctx->slotInfo.length);
+  BTL_DEBUG_PRINT_LF();
   user_ctx->old_fw_addr = 0x00;
   user_ctx->old_fw_base_addr = 0x00;
   user_ctx->new_fw_addr = 0x00;
@@ -504,7 +547,28 @@ void delta_dfu_init(struct callback_streams *user_ctx)
   user_ctx->patch_length = 0x00;
   memset(user_ctx->data_buf, 0xFF, DELTA_DFU_WRITE_SIZE * 2);
   user_ctx->data_index = 0;
+  return BOOTLOADER_OK;
 }
+
+#if defined(MAIN_BOOTLOADER_TEST)
+int32_t storage_getDeltaDfuInitSlotInfo(uint32_t slotId, BootloaderStorageSlot_t *slot)
+{
+  struct callback_streams user_ctx;
+
+  int32_t status;
+
+  if (slot == NULL) {
+    return BOOTLOADER_ERROR_STORAGE_INVALID_SLOT;
+  }
+
+  status = delta_dfu_init(&user_ctx, slotId);
+  if (status != BOOTLOADER_OK) {
+    return status;
+  }
+  *slot = user_ctx.slotInfo;
+  return BOOTLOADER_OK;
+}
+#endif
 
 bool copy_image_from_slot(struct callback_streams *user_ctx)
 {
@@ -618,7 +682,9 @@ static bool bootloadFromSlot(BootloaderParserContext_t         *context,
   ddfuBuff.data = ddfu_buffer;
   ddfuBuff.size = DELTA_DFU_WRITE_SIZE;
 
-  delta_dfu_init(&user_ctx);
+  if (delta_dfu_init(&user_ctx, context->slotId) != BOOTLOADER_OK) {
+    return false;
+  }
   const struct ddfu_patch_io io = {
     read_old_firmware,
     write_new_firmware,
