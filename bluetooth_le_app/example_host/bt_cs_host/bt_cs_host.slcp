@@ -1,10 +1,10 @@
 project_name: bt_cs_host
 package: bluetooth_le_app
 label: Bluetooth - CS Host
-description: >
+description: >-
   CS host
 category: Bluetooth Examples
-quality: experimental
+quality: production
 
 filter:
   - name: "Wireless Technology"

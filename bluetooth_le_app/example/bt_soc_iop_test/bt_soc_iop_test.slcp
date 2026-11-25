@@ -2,7 +2,7 @@
 project_name: bt_soc_iop_test
 package: bluetooth_le_app
 label: Bluetooth - SoC Interoperability Test
-description: >
+description: >-
   This is a test procedure containing several test cases for Bluetooth Low
   Energy communication. This demo is meant to be used with the Simplicity
   Connect mobile app, through the "Interoperability Test" tile on the Develop
@@ -108,7 +108,7 @@ configuration:
     condition:
       - psa_crypto
   - name: APP_LOG_LEVEL_FILTER_THRESHOLD
-    value: APP_LOG_LEVEL_INFO
+    value: APP_LOG_LEVEL_DEBUG
 
 define:
   - name: BOARD_MEMLCD_PRESENT

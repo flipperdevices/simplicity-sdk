@@ -179,6 +179,12 @@ uint16_t sli_mac_max_tx_flat_pkt_size = ALIGNED_MAX_FLAT_PACKET_SIZE;
 SL_ALIGN(4) static uint8_t outgoing_flat_packet[MAX_MAC_INDEX][ALIGNED_MAX_FLAT_PACKET_SIZE] SL_ATTRIBUTE_ALIGN(4);
 uint8_t *sli_mac_upper_mac_outgoing_flat_packet_ptr = (uint8_t *)outgoing_flat_packet;
 
+// Lower-MAC TX FIFO staging storage must be sized from the same resolved config
+// values as outgoing flat packet memory.
+uint16_t sli_mac_tx_fifo_staging_buffer_size = (ALIGNED_MAX_FLAT_PACKET_SIZE << 1U);
+SL_ALIGN(4) static uint8_t sl_mac_tx_fifo_staging_buffer[(ALIGNED_MAX_FLAT_PACKET_SIZE << 1U)] SL_ATTRIBUTE_ALIGN(4);
+uint8_t *sli_mac_tx_fifo_staging_buffer_ptr = sl_mac_tx_fifo_staging_buffer;
+
 //------------------------------------------------------------------------------
 // NWK Layer
 
@@ -441,6 +447,7 @@ uint8_t sli_zigbee_default_security_level = SL_ZIGBEE_SECURITY_LEVEL;
 uint8_t sli_zigbee_max_end_device_children = SL_ZIGBEE_MAX_END_DEVICE_CHILDREN;
 uint8_t sli_zigbee_max_hops = SL_ZIGBEE_MAX_HOPS;
 uint16_t sl_zigbee_mac_indirect_timeout = SL_ZIGBEE_INDIRECT_TRANSMISSION_TIMEOUT;
+uint16_t sl_zigbee_sleepy_target_mac_timeout_increase = SL_ZIGBEE_SLEEPY_TARGET_MAC_TIMEOUT_INCREASE;
 uint8_t sl_zigbee_end_devicekeep_alive_support_mode = SL_ZIGBEE_END_DEVICE_KEEP_ALIVE_SUPPORT_MODE;
 uint8_t sli_zigbee_stack_end_device_poll_timeout = SL_ZIGBEE_END_DEVICE_POLL_TIMEOUT;
 //STATIC_ASSERT(SL_ZIGBEE_END_DEVICE_POLL_TIMEOUT <= MINUTES_16384, "End device timeout out of range");
@@ -468,7 +475,9 @@ sl_zigbee_zll_policy_t sli_zigbee_zll_policy = SL_ZIGBEE_ZLL_POLICY_DISABLED;
 // The number of groups required by the ZLL application.
 uint8_t sli_zigbee_zll_group_addresses_needed = SL_ZIGBEE_ZLL_GROUP_ADDRESSES;
 int8_t sli_zigbee_zll_rssi_threshold = SL_ZIGBEE_ZLL_RSSI_THRESHOLD;
-#ifdef SL_ZIGBEE_ZLL_APPLY_THRESHOLD_TO_ALL_INTERPANS
+
+#if defined(SL_ZIGBEE_ZLL_APPLY_THRESHOLD_TO_ALL_INTERPANS) \
+    && (SL_ZIGBEE_ZLL_APPLY_THRESHOLD_TO_ALL_INTERPANS)
 bool sli_zigbee_zll_apply_threshold_to_all_interpans = true;
 #else
 bool sli_zigbee_zll_apply_threshold_to_all_interpans = false;

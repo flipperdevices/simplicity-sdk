@@ -20,6 +20,11 @@
 #include "app/framework/util/common.h"
 #include "app/framework/util/attribute-storage.h"
 #include "app/framework/plugin/reporting/reporting.h"
+#ifdef SL_CATALOG_ZIGBEE_REPORTING_PRESENT
+#include "reporting-config.h"
+#else
+#include "app/framework/plugin/reporting/config/reporting-config.h"
+#endif
 #include "stack/include/sl_zigbee_token.h"
 
 #if !defined(EZSP_HOST) && !defined(ENABLE_EXPANDED_TABLE) && !defined(SL_CATALOG_TOKEN_MANAGER_PRESENT)
@@ -125,25 +130,25 @@ void sli_zigbee_af_reporting_set_entry(uint16_t index, sl_zigbee_af_plugin_repor
 {
   ifValidIndex(memmove(&table[index], value, sizeof(sl_zigbee_af_plugin_reporting_entry_t)));
 }
-#elif defined(ENABLE_EXPANDED_TABLE) // SOC and expanded table is enabled
-#define reportingTableKey(index) (NVM3KEY_REPORTING_TABLE_EXPANDED + (index))
-void sli_zigbee_af_reporting_get_entry(uint16_t index, sl_zigbee_af_plugin_reporting_entry_t *result)
-{
-  ifValidIndex(nvm3_readData(nvm3_defaultHandle, reportingTableKey(index), result, sizeof(sl_zigbee_af_plugin_reporting_entry_t)));
-}
-void sli_zigbee_af_reporting_set_entry(uint16_t index, sl_zigbee_af_plugin_reporting_entry_t *value)
-{
-  ifValidIndex(nvm3_writeData(nvm3_defaultHandle, reportingTableKey(index), value, sizeof(sl_zigbee_af_plugin_reporting_entry_t)));
-}
-#else // SoC and expanded table is disabled
+#else // SoC (token-based; expanded or not uses CTM_REPORTING_TABLE)
 
 void sli_zigbee_af_reporting_get_entry(uint16_t index, sl_zigbee_af_plugin_reporting_entry_t *result)
 {
-  ifValidIndex((void)sl_token_manager_get_data(COMMON_TOKEN_REPORT_TABLE + index, (void *)result, sizeof(sl_zigbee_af_plugin_reporting_entry_t)));
+  if (index >= REPORT_TABLE_SIZE) {
+    return;
+  }
+  if (slx_zigbee_token_manager_get_data(CTM_REPORTING_TABLE + index, (void *)result, sizeof(sl_zigbee_af_plugin_reporting_entry_t)) != SL_STATUS_OK) {
+    return;
+  }
 }
 void sli_zigbee_af_reporting_set_entry(uint16_t index, sl_zigbee_af_plugin_reporting_entry_t *value)
 {
-  ifValidIndex((void)sl_token_manager_set_data(COMMON_TOKEN_REPORT_TABLE + index, (void *)value, sizeof(sl_zigbee_af_plugin_reporting_entry_t)));
+  if (index >= REPORT_TABLE_SIZE) {
+    return;
+  }
+  if (slx_zigbee_token_manager_set_data(CTM_REPORTING_TABLE + index, (void *)value, sizeof(sl_zigbee_af_plugin_reporting_entry_t)) != SL_STATUS_OK) {
+    return;
+  }
 }
 #endif
 
@@ -160,8 +165,16 @@ void sli_zigbee_af_reporting_stack_status_callback(sl_status_t status)
 
 sl_status_t sl_zigbee_af_reporting_token_init(void)
 {
+#ifdef EZSP_HOST
+  return SL_STATUS_OK;
+#else
   sl_zigbee_af_plugin_reporting_entry_t reporting_entry_default = TOKEN_REPORT_TABLE_DEFAULT;
-  return sl_zigbee_initialize_index_token(COMMON_TOKEN_REPORT_TABLE, &reporting_entry_default, sizeof(sl_zigbee_af_plugin_reporting_entry_t), REPORT_TABLE_SIZE);
+
+  return sl_zigbee_initialize_index_token(CTM_REPORTING_TABLE,
+                                          &reporting_entry_default,
+                                          sizeof(sl_zigbee_af_plugin_reporting_entry_t),
+                                          REPORT_TABLE_SIZE);
+#endif
 }
 
 void sl_zigbee_af_reporting_init_cb(uint8_t init_level)
@@ -292,6 +305,9 @@ void sl_zigbee_af_reporting_tick_event_handler(sl_zigbee_af_event_t * event)
                                                               "");
       apsFrame->sourceEndpoint = entry.endpoint;
       apsFrame->options = SL_ZIGBEE_AF_DEFAULT_APS_OPTIONS;
+#if (SL_ZIGBEE_AF_PLUGIN_REPORTING_ENABLE_RETRY == 0)
+      apsFrame->options &= ~SL_ZIGBEE_APS_OPTION_RETRY;
+#endif
       manufacturerCode = entry.manufacturerCode;
 
       // EMAPPFWKV2-1327: Reporting plugin does not account for reporting too many attributes

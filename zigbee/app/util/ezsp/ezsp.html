@@ -527,7 +527,8 @@
 <tr><td>SL_ZIGBEE_EZSP_VALUE_MAX_NWK_RETRIES</td><td>0x46</td><td>The maximum number of NWK retries that will be attempted.</td></tr>
 <tr><td>SL_ZIGBEE_EZSP_VALUE_REJOIN_MODE</td><td>0x47</td><td>Policies for allowing/disallowing rejoins.</td></tr>
 <tr><td>SL_ZIGBEE_EZSP_VALUE_JOIN_USE_INSTALL_CODE_ENABLE</td><td>0x48</td><td>Controls whether devices must use an install code when joining.</td></tr>
-<tr><td>SL_ZIGBEE_EZSP_VALUE_STACK_REVISION</td><td>0x49</td><td>The stack revision.</td></tr></table><br>
+<tr><td>SL_ZIGBEE_EZSP_VALUE_STACK_REVISION</td><td>0x49</td><td>The stack revision.</td></tr>
+<tr><td>SL_ZIGBEE_EZSP_CONFIG_SLEEPY_TARGET_MAC_TIMEOUT_INCREASE</td><td>0x50</td><td>The extra milliseconds added to the APS retry and Fragmentation retry timeout for known sleepy destinations.</td></tr></table><br>
   <table class="borders"><col width="300"><col width="100"><col width="300">
   <tr class="heading">
   <td colspan="3"><b>sl_zigbee_ezsp_extended_value_id_t</b></td>
@@ -3161,6 +3162,18 @@ source route at <i>index</i>.</td></tr>
     <tr><td>uint8_t index</td><td colspan="2">The index of a binding table entry.</td></tr>
 
     <tr><td>sl_802154_short_addr_t nodeId</td><td colspan="2">The short ID of the destination node.</td></tr>
+
+    <tr><td colspan="3" style="border-top: solid black 1px;"><b>Response Parameters:</b> None</td></tr>
+</table><br>
+
+    <table class="outline"><col width="300"><col width="200"><col width="200">
+    <tr class="heading">
+    <td><b>Name:</b> clearBindingTableOnLeave</td><td><b>ID:</b> 0x006D</td><td></td></tr>
+<tr><td colspan="3" style="border-top: solid black 1px;"><b>Description:</b> When enabled, the stack clears the binding table on definitive leave (not leave-with-rejoin), as required for Zigbee 4.0 security profile (e.g. CN-Reset-TC-01).</td></tr>
+
+    <tr><td colspan="3" style="border-top: solid black 1px;"><b>Command Parameters:</b></td></tr>
+
+    <tr><td>bool clear</td><td colspan="2">True to clear bindings on leave; false to disable.</td></tr>
 
     <tr><td colspan="3" style="border-top: solid black 1px;"><b>Response Parameters:</b> None</td></tr>
 </table><br>
@@ -6195,6 +6208,7 @@ source route at <i>index</i>.</td></tr>
 <tr><td>childJoinHandler</td><td>0x0023</td></tr>
 <tr><td>childPower</td><td>0x0134</td></tr>
 <tr><td>clearBindingTable</td><td>0x002A</td></tr>
+<tr><td>clearBindingTableOnLeave</td><td>0x006D</td></tr>
 <tr><td>clearKeyTable</td><td>0x00B1</td></tr>
 <tr><td>clearMessageFlag</td><td>0x0137</td></tr>
 <tr><td>clearStoredBeacons</td><td>0x003C</td></tr>
@@ -6630,7 +6644,7 @@ source route at <i>index</i>.</td></tr>
 <tr><td>0x006A</td><td bgcolor="white">getMaxMacRetries</td></tr>
 <tr><td>0x006B</td><td bgcolor="white">clearTransientLinkKeys</td></tr>
 <tr><td>0x006C</td><td bgcolor="white">updateTcLinkKey</td></tr>
-<tr><td>0x006D</td><td bgcolor="lightgray">-- unassigned --</td></tr>
+<tr><td>0x006D</td><td bgcolor="white">clearBindingTableOnLeave</td></tr>
 <tr><td>0x006E</td><td bgcolor="white">switchNetworkKeyHandler</td></tr>
 <tr><td>0x006F</td><td bgcolor="white">aesMmoHash</td></tr>
 <tr><td>0x0070</td><td bgcolor="white">gpSinkTableInit</td></tr>

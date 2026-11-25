@@ -3,7 +3,7 @@
  * @brief struct definitions for zigbee ipc command messages
  *******************************************************************************
  * # License
- * <b>Copyright 2025 Silicon Laboratories Inc. www.silabs.com</b>
+ * <b>Copyright 2026 Silicon Laboratories Inc. www.silabs.com</b>
  *******************************************************************************
  *
  * The licensor of this software is Silicon Laboratories Inc. Your use of this
@@ -22,6 +22,9 @@
 #include "sl_component_catalog.h"
 #endif
 
+#ifdef SL_CATALOG_RAIL_MUX_AUX_PRESENT
+#include "stack/internal/src/ipc/sl_zigbee_rail_mux_aux_raw_ipc_command_messages.h"
+#endif
 #include "stack/internal/src/ipc/aes-mmo-ipc-command-messages.h"
 #include "stack/internal/src/ipc/binding-table-ipc-command-messages.h"
 #include "stack/internal/src/ipc/bootload_ipc_command_messages.h"
@@ -103,7 +106,7 @@
 #include "stack/internal/src/ipc/zigbee-dynamic-node-type-ipc-command-messages.h"
 #endif
 #include "stack/internal/src/ipc/zigbee-security-manager-ipc-command-messages.h"
-#ifdef SL_CATALOG_ZIGBEE_DIRECT_ZDD_PRESENT
+#ifdef SL_CATALOG_ZIGBEE_DIRECT_STACK_INTERFACE_PRESENT
 #include "stack/internal/src/ipc/zigbee_direct_stack_interface_ipc_command_messages.h"
 #endif
 #ifdef SL_CATALOG_ZIGBEE_LIGHT_LINK_PRESENT
@@ -112,6 +115,17 @@
 
 typedef struct {
   union {
+    #ifdef SL_CATALOG_RAIL_MUX_AUX_PRESENT
+    sli_zigbee_stack_rail_mux_aux_get_default_listen_rx_packet_count_ipc_msg_t rail_mux_aux_get_default_listen_rx_packet_count;
+    sli_zigbee_stack_rail_mux_aux_get_default_rail_config_ipc_msg_t rail_mux_aux_get_default_rail_config;
+    sli_zigbee_stack_rail_mux_aux_get_default_rail_handle_ipc_msg_t rail_mux_aux_get_default_rail_handle;
+    sli_zigbee_stack_rail_mux_aux_register_protocol_ipc_msg_t rail_mux_aux_register_protocol;
+    sli_zigbee_stack_rail_mux_aux_start_cca_csma_tx_ipc_msg_t rail_mux_aux_start_cca_csma_tx;
+    sli_zigbee_stack_rail_mux_aux_start_tx_ipc_msg_t rail_mux_aux_start_tx;
+    sli_zigbee_stack_rail_mux_aux_try_register_and_start_rx_ipc_msg_t rail_mux_aux_try_register_and_start_rx;
+    sli_zigbee_stack_rail_mux_aux_unregister_protocol_ipc_msg_t rail_mux_aux_unregister_protocol;
+    sli_zigbee_stack_rail_mux_aux_write_tx_fifo_ipc_msg_t rail_mux_aux_write_tx_fifo;
+    #endif
     sli_zigbee_stack_aes_hash_simple_ipc_msg_t aes_hash_simple;
     sli_zigbee_stack_aes_mmo_hash_final_ipc_msg_t aes_mmo_hash_final;
     sli_zigbee_stack_aes_mmo_hash_init_ipc_msg_t aes_mmo_hash_init;
@@ -355,6 +369,7 @@ typedef struct {
     sli_zigbee_stack_zigbee_remove_child_ipc_msg_t zigbee_remove_child;
     slxi_zigbee_stack_gu_zdo_toggle_dlk_ipc_msg_t gu_zdo_toggle_dlk;
     slxi_zigbee_stack_ignore_incoming_aps_acks_ipc_msg_t ignore_incoming_aps_acks;
+    slxi_zigbee_stack_insecure_debug_generate_trace_ipc_msg_t insecure_debug_generate_trace;
     #endif
     sli_zigbee_stack_get_embernet_passthrough_source_address_ipc_msg_t get_embernet_passthrough_source_address;
     sli_zigbee_stack_get_mac_passthrough_flags_ipc_msg_t get_mac_passthrough_flags;
@@ -453,8 +468,13 @@ typedef struct {
     #endif
     sli_zigbee_stack_get_token_count_ipc_msg_t get_token_count;
     sli_zigbee_stack_get_token_data_ipc_msg_t get_token_data;
+    sli_zigbee_stack_get_token_default_ipc_msg_t get_token_default;
     sli_zigbee_stack_get_token_info_ipc_msg_t get_token_info;
+    sli_zigbee_stack_initialize_basic_token_ipc_msg_t initialize_basic_token;
+    sli_zigbee_stack_initialize_counter_token_ipc_msg_t initialize_counter_token;
+    sli_zigbee_stack_initialize_index_token_ipc_msg_t initialize_index_token;
     sli_zigbee_stack_set_token_data_ipc_msg_t set_token_data;
+    slxi_zigbee_stack_token_manager_get_data_ipc_msg_t token_manager_get_data;
     #ifdef SL_CATALOG_ZIGBEE_R23_SUPPORT_PRESENT
     sli_zigbee_stack_zdo_get_configuration_req_ipc_msg_t zdo_get_configuration_req;
     sli_zigbee_stack_zdo_set_add_configuration_ipc_msg_t zdo_set_add_configuration;
@@ -468,6 +488,7 @@ typedef struct {
     slxi_zigbee_stack_gu_zdo_dlk_mangle_packet_ipc_msg_t gu_zdo_dlk_mangle_packet;
     slxi_zigbee_stack_gu_zdo_dlk_override_psk_fetch_ipc_msg_t gu_zdo_dlk_override_psk_fetch;
     slxi_zigbee_stack_gu_zdo_dlk_override_supported_params_ipc_msg_t gu_zdo_dlk_override_supported_params;
+    slxi_zigbee_stack_zdo_dlk_start_key_update_with_aps_encryption_ipc_msg_t zdo_dlk_start_key_update_with_aps_encryption;
     #endif
     #ifdef SL_CATALOG_ZIGBEE_R23_SUPPORT_PRESENT
     sli_zigbee_stack_request_beacon_survey_ipc_msg_t request_beacon_survey;
@@ -627,7 +648,7 @@ typedef struct {
     slxi_zigbee_stack_get_trust_center_additional_info_ipc_msg_t get_trust_center_additional_info;
     slxi_zigbee_stack_set_key_table_additional_info_ipc_msg_t set_key_table_additional_info;
     slxi_zigbee_stack_set_trust_center_additional_info_ipc_msg_t set_trust_center_additional_info;
-    #ifdef SL_CATALOG_ZIGBEE_DIRECT_ZDD_PRESENT
+    #ifdef SL_CATALOG_ZIGBEE_DIRECT_STACK_INTERFACE_PRESENT
     sli_zigbee_stack_direct_send_commissioning_response_ipc_msg_t direct_send_commissioning_response;
     sli_zigbee_stack_direct_send_ephemeral_key_ipc_msg_t direct_send_ephemeral_key;
     sli_zigbee_stack_get_nwk_update_id_ipc_msg_t get_nwk_update_id;

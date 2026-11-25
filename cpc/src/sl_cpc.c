@@ -419,6 +419,11 @@ sli_cpc_instance_t* sli_cpc_get_instance(uint8_t ep_id)
     return SL_CPC_INSTANCE_PTR(SL_CPC_ENDPOINT_NVM3_INSTANCE);
   }
   #endif
+  #if (SLI_CPC_ENDPOINT_MATTER_ENABLED >= 1) && defined(SL_CPC_ENDPOINT_MATTER_INSTANCE)
+  else if (ep_id == SL_CPC_ENDPOINT_MATTER) {
+    return SL_CPC_INSTANCE_PTR(SL_CPC_ENDPOINT_MATTER_INSTANCE);
+  }
+  #endif
   #if defined(SL_CPC_ENDPOINT_USER_INSTANCE)
   else if (ep_id >= SL_CPC_ENDPOINT_USER_ID_0) {
     return SL_CPC_INSTANCE_PTR(SL_CPC_ENDPOINT_USER_INSTANCE);
@@ -2317,6 +2322,9 @@ void sli_cpc_notify_rx_data_from_drv(sli_cpc_instance_t *inst)
 bool sl_cpc_is_ok_to_sleep(void)
 {
   return (g_instance.rx_process_flag == 0
+          && g_instance.defer_endpoint_free_list == NULL
+          && g_instance.pending_on_security_ready_queue == NULL
+          && g_instance.event_counter == 0
           && (g_instance.transmit_queue == NULL || !g_instance.driver->ops.is_transmit_ready(g_instance.driver)));
 }
 #endif

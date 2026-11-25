@@ -40,6 +40,7 @@
 #include "sl_code_classification.h"
 #include "sl_core.h"
 #include "sl_clock_manager.h"
+#include "sli_clock_manager.h"
 #include "sl_interrupt_manager.h"
 #include "sl_device_peripheral.h"
 
@@ -107,7 +108,8 @@ void sleeptimer_hal_init_timer(void)
 /*******************************************************************************
  * Hardware Abstraction Layer to perform initialization related to Power Manager.
  ******************************************************************************/
-#if defined(SL_CATALOG_POWER_MANAGER_PRESENT)
+#if defined(SL_CATALOG_POWER_MANAGER_PRESENT) \
+  && !defined(SL_CATALOG_SYSRTC_PRETRIGGERS_PRESENT)
 void sli_sleeptimer_hal_power_manager_integration_init(void)
 {
   // Initialize PRS to start HFXO for early wakeup
@@ -119,7 +121,7 @@ void sli_sleeptimer_hal_power_manager_integration_init(void)
 #elif defined(PRS_ASYNC_SYSRTC0_GRP0OUT1)
   sl_hal_prs_async_connect_channel_producer(1UL, SL_HAL_PRS_ASYNC_SYSRTC0_GRP0OUT1);
   sl_hal_prs_connect_channel_consumer(1UL, SL_HAL_PRS_TYPE_ASYNC, SL_HAL_PRS_CONSUMER_HFXO0_OSCREQ);
-#else
+#elif defined(PRS_ASYNC_SYSRTC0L_GRP0OUT1)
   sl_hal_prs_async_connect_channel_producer(1UL, SL_HAL_PRS_ASYNC_SYSRTC0L_GRP0OUT1);
   sl_hal_prs_connect_channel_consumer(1UL, SL_HAL_PRS_TYPE_ASYNC, SL_HAL_PRS_CONSUMER_HFXO0_OSCREQ);
 #endif
@@ -132,7 +134,7 @@ void sli_sleeptimer_hal_power_manager_integration_init(void)
 /*******************************************************************************
  * Hardware Abstraction Layer to perform initialization related to HFXO Manager.
  ******************************************************************************/
-#if defined(SL_CATALOG_HFXO_MANAGER_PRESENT)
+#if defined(SL_CATALOG_HFXO_MANAGER_PRESENT) && !defined(SLI_HFXO_BYPASS_MODE)
 void sli_sleeptimer_hal_hfxo_manager_integration_init(void)
 {
   // Set PRS signal from HFXO to SYSRTC capture channel

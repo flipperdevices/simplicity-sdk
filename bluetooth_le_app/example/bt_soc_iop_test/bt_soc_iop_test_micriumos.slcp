@@ -2,13 +2,13 @@
 project_name: bt_soc_iop_test_micriumos
 package: bluetooth_le_app
 label: Bluetooth - SoC Interoperability Test Micrium OS
-description: >
+description: >-
   This is a test procedure containing several test cases for Bluetooth Low
   Energy communication. This demo is meant to be used with the Simplicity
   Connect mobile app, through the "Interoperability Test" tile on the Develop
   view of the app.
 category: Bluetooth Examples
-quality: experimental
+quality: production
 
 filter:
   - name: "Wireless Technology"
@@ -104,7 +104,7 @@ configuration:
     condition:
       - app_ota_dfu
   - name: SL_BT_APP_OTA_DFU_CONFIG_STACK
-    value: "2048"
+    value: "4096"
     condition:
       - app_ota_dfu
   - name: LIB_MEM_CFG_HEAP_SIZE
@@ -146,7 +146,7 @@ configuration:
     condition:
       - psa_crypto
   - name: APP_LOG_LEVEL_FILTER_THRESHOLD
-    value: APP_LOG_LEVEL_INFO
+    value: APP_LOG_LEVEL_DEBUG
 
 define:
   - name: BOARD_MEMLCD_PRESENT

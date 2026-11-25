@@ -54,6 +54,10 @@
 // header file in order to provide the component specific logging macro.
 #include "app_btmesh_util.h"
 
+#ifdef SL_CATALOG_BTMESH_LC_SERVER_PRESENT
+#include "sl_btmesh_lc_server.h"
+#endif
+
 #ifdef SL_CATALOG_BTMESH_SCENE_SERVER_PRESENT
 #define scene_server_reset_register(elem_index) \
   scene_server_reset_register_impl(elem_index)
@@ -172,6 +176,14 @@ static sl_status_t lightness_update(uint16_t element_index,
 static void scene_server_reset_register_impl(uint16_t elem_index);
 #endif
 
+#ifdef SL_CATALOG_BTMESH_HSL_SERVER_PRESENT
+extern void sl_btmesh_hsl_server_stop_all_transitions(void);
+#endif
+
+#ifdef SL_CATALOG_BTMESH_CTL_SERVER_PRESENT
+extern void sl_btmesh_ctl_server_stop_all_transitions(void);
+#endif
+
 // Timer handles
 static app_timer_t lighting_pri_level_move_timer;
 static app_timer_t lighting_transition_complete_timer;
@@ -200,17 +212,60 @@ static void lighting_delayed_onoff_request_timer_cb(app_timer_t *handle,
 static void lighting_state_store_timer_cb(app_timer_t *handle,
                                           void *data);
 
-// OnOff State change callbacks
-static sl_btmesh_lighting_onoff_state_change_cb_t on_off_change_callback = NULL;
+// Generic OnOff callback
+static sl_btmesh_lighting_generic_onoff_cb_t generic_onoff_callback = NULL;
+// Pri Level Move callback
+static sl_btmesh_lighting_pri_level_move_cb_t pri_level_move_callback  = NULL;
+// Pri Level Halt callback
+static sl_btmesh_lighting_pri_level_halt_cb_t pri_level_halt_callback  = NULL;
 
 /*******************************************************************************
- * Register a callback for OnOff state changes
+ * On "Off" request, this function halts all primary level moves
+ * and stops all ongoing transitions for HSL and CTL servers.
+ ******************************************************************************/
+static void lighting_server_stop_all_transitions_on_off_request(void)
+{
+  pri_level_move_stop();
+
+#ifdef SL_CATALOG_BTMESH_HSL_SERVER_PRESENT
+  sl_btmesh_hsl_server_stop_all_transitions();
+#endif
+
+#ifdef SL_CATALOG_BTMESH_CTL_SERVER_PRESENT
+  sl_btmesh_ctl_server_stop_all_transitions();
+#endif
+}
+
+/*******************************************************************************
+ * Register a callback for OnOff request
  *
  * @param[in] cb Function pointer
  ******************************************************************************/
-sl_status_t sl_btmesh_register_lightness_onoff_state_change_cb(sl_btmesh_lighting_onoff_state_change_cb_t cb)
+sl_status_t sl_btmesh_register_lighting_generic_onoff_cb(sl_btmesh_lighting_generic_onoff_cb_t cb)
 {
-  on_off_change_callback = cb;
+  generic_onoff_callback = cb;
+  return SL_STATUS_OK;
+}
+
+/*******************************************************************************
+ * Register a callback for Pri Level Move request
+ *
+ * @param[in] cb Function pointer
+ ******************************************************************************/
+sl_status_t sl_btmesh_register_lightness_pri_level_move_cb(sl_btmesh_lighting_pri_level_move_cb_t cb)
+{
+  pri_level_move_callback = cb;
+  return SL_STATUS_OK;
+}
+
+/*******************************************************************************
+ * Register a callback for Pri Level Halt request
+ *
+ * @param[in] cb Function pointer
+ ******************************************************************************/
+sl_status_t sl_btmesh_register_lightness_pri_level_halt_cb(sl_btmesh_lighting_pri_level_halt_cb_t cb)
+{
+  pri_level_halt_callback = cb;
   return SL_STATUS_OK;
 }
 
@@ -522,63 +577,75 @@ static void onoff_request(uint16_t model_id,
   (void)model_id;
   (void)server_addr;
 
+  const bool state_changed = (lightbulb_state.onoff_current != request->on_off);
+
   log_info("ON/OFF request: requested state=<%s>, transition=%lu, delay=%u" NL,
            request->on_off ? "ON" : "OFF", transition_ms, delay_ms);
 
-  // OnOff requests should cancel any ongoing Generic Level Move transitions
-  // bound to the Light Lightness model
-  // Delayed updates cancel the transition at the timer callback
-  if (!delay_ms) {
-    pri_level_move_stop();
-    if (on_off_change_callback) {
-      on_off_change_callback();
-    }
+  lightness_kind = mesh_generic_state_on_off;
+
+  // Cancel any ongoing transitions when a non-delayed OFF OnOff request is received
+  if (!delay_ms && request->on_off == MESH_GENERIC_ON_OFF_STATE_OFF) {
+    lighting_server_stop_all_transitions_on_off_request();
   }
 
   lightbulb_state.transtime_ms = transition_ms;
-  if (lightbulb_state.onoff_current == request->on_off) {
-    log_info("Request for current state received; no op" NL);
-  } else {
+
+  // Set target when state changes
+  if (state_changed) {
     log_info("Turning light bulb <%s>" NL, request->on_off ? "ON" : "OFF");
     lightbulb_state.onoff_target = request->on_off;
-    if (lightbulb_state.onoff_target == MESH_GENERIC_ON_OFF_STATE_OFF) {
+    if (request->on_off == MESH_GENERIC_ON_OFF_STATE_OFF) {
       lightbulb_state.lightness_target = 0;
     } else {
       // restore last brightness
       lightbulb_state.lightness_target = lightness_validate_and_correct(lightbulb_state.lightness_last);
     }
-    if (transition_ms == 0 && delay_ms == 0) { // Immediate change
+  } else {
+    log_info("Request for current state received; no state change" NL);
+  }
+
+  // Immediate change without delay or transition
+  if (delay_ms == 0 && transition_ms == 0) {
+    if (generic_onoff_callback) {
+      generic_onoff_callback(request->on_off);
+    }
+
+    if (state_changed) {
       lightbulb_state.onoff_current = request->on_off;
       lightbulb_state.lightness_current = lightbulb_state.lightness_target;
       sl_btmesh_lighting_set_level(lightbulb_state.lightness_current, IMMEDIATE);
-    } else if (delay_ms > 0) {
-      // a delay has been specified for the light change. Start a soft timer
-      // that will trigger the change after the given delay
-      // Current state remains as is for now
-      sl_status_t sc = app_timer_start(&lighting_delayed_onoff_request_timer,
-                                       delay_ms,
-                                       lighting_delayed_onoff_request_timer_cb,
-                                       NO_CALLBACK_DATA,
-                                       false);
-      app_assert_status_f(sc, "Failed to start Delayed ON/OFF Request timer");
-      // store transition parameter for later use
-      delayed_onoff_trans = transition_ms;
-    } else {
-      // no delay but transition time has been set.
-      onoff_update(element_index, transition_ms);
-
-      sl_btmesh_lighting_set_level(lightbulb_state.lightness_target,
-                                   transition_ms);
-      // lightbulb current state will be updated when transition is complete
-      sl_status_t sc = app_timer_start(&lighting_onoff_transition_complete_timer,
-                                       transition_ms,
-                                       lighting_onoff_transition_complete_timer_cb,
-                                       NO_CALLBACK_DATA,
-                                       false);
-      app_assert_status_f(sc, "Failed to start ON/OFF Transition Complete timer");
+      lightbulb_state_changed();
     }
-    lightbulb_state_changed();
+  } else if (delay_ms > 0) {
+    // a delay has been specified for the light change. Start a soft timer
+    // that will trigger the change after the given delay
+    // Current state remains as is for now
+    sl_status_t sc = app_timer_start(&lighting_delayed_onoff_request_timer,
+                                     delay_ms,
+                                     lighting_delayed_onoff_request_timer_cb,
+                                     NO_CALLBACK_DATA,
+                                     false);
+    app_assert_status_f(sc, "Failed to start Delayed ON/OFF Request timer");
+    // store transition parameter for later use
+    delayed_onoff_trans = transition_ms;
+  } else {
+    // no delay but transition time has been set.
+    if (state_changed) {
+      onoff_update(element_index, transition_ms);
+      sl_btmesh_lighting_set_level(lightbulb_state.lightness_target, transition_ms);
+    }
 
+    // Current state is updated when transition completes
+    sl_status_t sc = app_timer_start(&lighting_onoff_transition_complete_timer,
+                                     transition_ms,
+                                     lighting_onoff_transition_complete_timer_cb,
+                                     NO_CALLBACK_DATA,
+                                     false);
+    app_assert_status_f(sc, "Failed to start ON/OFF Transition Complete timer");
+  }
+
+  if (state_changed) {
     // State has changed, so the current scene number is reset
     scene_server_reset_register(element_index);
   }
@@ -684,6 +751,8 @@ static void onoff_recall(uint16_t model_id,
  ******************************************************************************/
 static void onoff_transition_complete(void)
 {
+  const bool state_changed = lightbulb_state.onoff_current != lightbulb_state.onoff_target;
+
   // transition done -> set state, update and publish
   lightbulb_state.onoff_current = lightbulb_state.onoff_target;
   lightbulb_state.transtime_ms = 0;
@@ -692,7 +761,13 @@ static void onoff_transition_complete(void)
   log_info("Transition complete. New state is %s" NL,
            lightbulb_state.onoff_current ? "ON" : "OFF");
 
-  lightbulb_state_changed();
+  if (state_changed) {
+    lightbulb_state_changed();
+  }
+
+  // onoff_update_and_publish is intentionally called outside the if (state_changed)
+  // block. This ensures the remaining time is always updated and prevents it
+  // from becoming stuck with stale values.
   onoff_update_and_publish(BTMESH_LIGHTING_SERVER_MAIN, IMMEDIATE);
 }
 
@@ -701,6 +776,8 @@ static void onoff_transition_complete(void)
  ******************************************************************************/
 static void delayed_onoff_request(void)
 {
+  const bool state_changed = lightbulb_state.onoff_current != lightbulb_state.onoff_target;
+
   log_info("Starting delayed ON/OFF request: %u -> %u, %lu ms" NL,
            lightbulb_state.onoff_current,
            lightbulb_state.onoff_target,
@@ -710,16 +787,20 @@ static void delayed_onoff_request(void)
     // no transition delay, update state immediately
     lightbulb_state.onoff_current = lightbulb_state.onoff_target;
     lightbulb_state.lightness_current = lightbulb_state.lightness_target;
-    sl_btmesh_lighting_set_level(lightbulb_state.lightness_current, IMMEDIATE);
 
-    lightbulb_state_changed();
+    if (state_changed) {
+      sl_btmesh_lighting_set_level(lightbulb_state.lightness_current, IMMEDIATE);
+      lightbulb_state_changed();
+    }
 
     onoff_update_and_publish(BTMESH_LIGHTING_SERVER_MAIN,
                              delayed_onoff_trans);
   } else {
-    sl_btmesh_lighting_set_level(lightbulb_state.lightness_target,
-                                 delayed_onoff_trans);
-    onoff_update(BTMESH_LIGHTING_SERVER_MAIN, delayed_onoff_trans);
+    if (state_changed) {
+      sl_btmesh_lighting_set_level(lightbulb_state.lightness_target,
+                                   delayed_onoff_trans);
+      onoff_update(BTMESH_LIGHTING_SERVER_MAIN, delayed_onoff_trans);
+    }
 
     // state is updated when transition is complete
     sl_status_t sc = app_timer_start(&lighting_onoff_transition_complete_timer,
@@ -1166,7 +1247,7 @@ static void lightness_request(uint16_t model_id,
            actual_request, transition_ms, delay_ms);
 
   // Lightness is bound to an underlying Generic Level
-  // If lightess is set, any ongoing Generic Level Move transitions must be cancelled
+  // If lightness is set, any ongoing Generic Level Move transitions must be cancelled
   // Delayed updates cancel the transition at the timer callback
   if (!delay_ms) {
     pri_level_move_stop();
@@ -1758,9 +1839,8 @@ static void pri_level_move_schedule_next_request(int32_t remaining_delta)
                                  transition_ms);
   } else {
     transition_ms = move_pri_level_trans;
-    sl_btmesh_lighting_set_level((uint16_t)(lightbulb_state.lightness_current
-                                            + move_pri_level_delta),
-                                 move_pri_level_trans);
+    sl_btmesh_lighting_set_level(lightbulb_state.lightness_current,
+                                 transition_ms);
   }
   sl_status_t sc = app_timer_start(&lighting_pri_level_move_timer,
                                    transition_ms,
@@ -1910,6 +1990,13 @@ static void pri_level_request(uint16_t model_id,
     case mesh_generic_request_level_move: {
       log_info("pri_level_request (move): delta=%d, transition=%lu, delay=%u" NL,
                request->level, transition_ms, delay_ms);
+
+      // Invoke the Pri Level Move callback immediately if there is no delay;
+      // for delayed moves, the callback will be invoked from the timer callback
+      if (!delay_ms && pri_level_move_callback) {
+        pri_level_move_callback();
+      }
+
       // Store move parameters
       move_pri_level_delta = request->level;
       move_pri_level_trans = transition_ms;
@@ -1925,12 +2012,22 @@ static void pri_level_request(uint16_t model_id,
       lightness = pri_level_to_lightness(requested_level);
       lightbulb_state.lightness_target = lightness_validate_and_correct(lightness);
 
-      if (lightness_to_pri_level(lightbulb_state.lightness_current) == requested_level) {
+      // Pri level move starts increasing or decreasing the generic pri level to
+      // the maximum or minimum level. The minimum -32768 generic level means 0
+      // lightness level. The maximum generic level is limited by the lightness
+      // range state (binding). If the target lightness level is already reached
+      // then the request is a no-operation.
+      // Note: If the requested level is zero then it means a halt so the btmesh
+      //       stack passes it as mesh_generic_request_level_halt.
+      const bool state_changed =
+        (lightbulb_state.lightness_current != lightbulb_state.lightness_target);
+
+      if (state_changed) {
+        log_info("Setting pri_level to <%d>" NL, requested_level);
+      } else {
         log_info("Request for current state received; no op" NL);
         remaining_ms = IMMEDIATE;
-        break;
       }
-      log_info("Setting pri_level to <%d>" NL, requested_level);
 
       if (delay_ms > 0) {
         // a delay has been specified for the move. Start a soft timer
@@ -1942,7 +2039,7 @@ static void pri_level_request(uint16_t model_id,
                                          NO_CALLBACK_DATA,
                                          false);
         app_assert_status_f(sc, "Failed to start Delayed Primary Level timer");
-      } else {
+      } else if (state_changed) {
         // no delay so start move
         int32_t remaining_delta = (int32_t)lightbulb_state.lightness_target
                                   - (int32_t)lightbulb_state.lightness_current;
@@ -1958,12 +2055,20 @@ static void pri_level_request(uint16_t model_id,
       }
 
       // State has changed, so the current scene number is reset
-      scene_server_reset_register(element_index);
+      if (state_changed) {
+        scene_server_reset_register(element_index);
+      }
       break;
     }
 
     case mesh_generic_request_level_halt:
       log_info("pri_level_request (halt)" NL);
+
+      // Invoke the Pri Level Halt callback immediately if there is no delay;
+      // for delayed halts, the callback will be invoked from the timer callback
+      if (!delay_ms && pri_level_halt_callback) {
+        pri_level_halt_callback();
+      }
 
       // Set current state
       lightbulb_state.lightness_current = sl_btmesh_get_level();
@@ -2148,13 +2253,26 @@ static void delayed_pri_level_request(void)
       break;
 
     case mesh_generic_request_level_move:
-      pri_level_move_schedule_next_request((int32_t)lightbulb_state.lightness_target
-                                           - (int32_t)lightbulb_state.lightness_current);
-      pri_level_update_and_publish(BTMESH_LIGHTING_SERVER_MAIN,
-                                   UNKNOWN_REMAINING_TIME);
+      // Invoke the Pri Level Move callback if registered
+      if (pri_level_move_callback) {
+        pri_level_move_callback();
+      }
+
+      if (lightbulb_state.lightness_current != lightbulb_state.lightness_target) {
+        int32_t remaining_delta = (int32_t)lightbulb_state.lightness_target
+                                  - (int32_t)lightbulb_state.lightness_current;
+        pri_level_move_schedule_next_request(remaining_delta);
+        pri_level_update_and_publish(BTMESH_LIGHTING_SERVER_MAIN,
+                                     UNKNOWN_REMAINING_TIME);
+      }
       break;
 
     case mesh_generic_request_level_halt:
+      // Invoke the Pri Level Halt callback if registered
+      if (pri_level_halt_callback) {
+        pri_level_halt_callback();
+      }
+
       // Set current state
       lightbulb_state.lightness_current = sl_btmesh_get_level();
       lightbulb_state.lightness_target = lightbulb_state.lightness_current;
@@ -2381,7 +2499,7 @@ void sl_btmesh_lighting_server_init(void)
     case MESH_GENERIC_ON_POWER_UP_STATE_RESTORE:
       log_info("On power up state is RESTORE" NL);
 #ifdef SL_CATALOG_BTMESH_LC_SERVER_PRESENT
-      if (lc_get_mode() == 0)
+      if (sl_btmesh_lc_get_mode() == 0)
 #endif
       {
         if (lightbulb_state.transtime_ms == UNKNOWN_REMAINING_TIME) {
@@ -2430,8 +2548,8 @@ void sl_btmesh_lighting_server_init(void)
 
   power_onoff_update_and_publish(BTMESH_LIGHTING_SERVER_MAIN);
 
-#ifdef SL_CATALOG_BTMESH_LC_PRESENT
-  if (lc_get_mode() == 0)
+#ifdef SL_CATALOG_BTMESH_LC_SERVER_PRESENT
+  if (sl_btmesh_lc_get_mode() == 0)
 #endif
   {
     onoff_update_and_publish(BTMESH_LIGHTING_SERVER_MAIN,
@@ -2634,6 +2752,12 @@ static void lighting_onoff_transition_complete_timer_cb(app_timer_t *handle,
 {
   (void)data;
   (void)handle;
+
+  // Invoke the OnOff change callback if registered
+  if (generic_onoff_callback) {
+    generic_onoff_callback(lightbulb_state.onoff_target);
+  }
+
   // transition for an on/off request has completed,
   // update the lightbulb state
   onoff_transition_complete();
@@ -2685,10 +2809,16 @@ static void lighting_delayed_onoff_request_timer_cb(app_timer_t *handle,
   (void)data;
   (void)handle;
 
-  pri_level_move_stop();
-  if (on_off_change_callback) {
-    on_off_change_callback();
+  if (lightbulb_state.onoff_target == MESH_GENERIC_ON_OFF_STATE_OFF) {
+    lighting_server_stop_all_transitions_on_off_request();
   }
+
+  // Invoke the OnOff change callback if registered, and there is no transition
+  // time to avoid double invocation of the callback
+  if (generic_onoff_callback && lightbulb_state.transtime_ms == 0) {
+    generic_onoff_callback(lightbulb_state.onoff_target);
+  }
+
   // delay for an on/off request has passed, now process the request
   delayed_onoff_request();
 }

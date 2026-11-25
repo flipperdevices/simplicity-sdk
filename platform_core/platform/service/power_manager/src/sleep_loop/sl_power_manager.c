@@ -42,6 +42,10 @@
 #include "sl_power_manager_execution_modes.h"
 #endif
 
+#if defined(SL_CATALOG_POWER_MANAGER_RETENTION_PRESENT)
+#include "sli_power_manager_periph_state.h"
+#endif
+
 #include "em_device.h"
 #if !defined(_SILICON_LABS_32B_SERIES_3)
 #include "em_emu.h"
@@ -89,8 +93,10 @@ uint8_t requirement_high_accuracy_hf_clock_counter = 0;
 bool requirement_high_accuracy_hf_clock_back_to_zero = false;
 #endif
 
+#if !defined(SLI_HFXO_BYPASS_MODE)
 // Saved energy mode we are coming from when waiting for HFXO ready.
 static sl_power_manager_em_t waiting_clock_restore_from_em = SL_POWER_MANAGER_EM0;
+#endif
 
 // Flag indicating if we are sleeping, waiting for the HF clock restore
 static volatile bool is_sleeping_waiting_for_clock_restore = false;
@@ -182,7 +188,8 @@ sl_status_t sl_power_manager_init(void)
 
   if (!is_initialized) {
 #if !defined(SL_CATALOG_POWER_MANAGER_NO_DEEPSLEEP_PRESENT) \
-    && !defined(SL_CATALOG_POWER_MANAGER_DEEPSLEEP_BLOCKING_HFXO_RESTORE_PRESENT)
+    && !defined(SL_CATALOG_POWER_MANAGER_DEEPSLEEP_BLOCKING_HFXO_RESTORE_PRESENT) \
+    && !defined(SLI_HFXO_BYPASS_MODE)
     // Additional Sleeptimer HW configuration if the "power_manager_deepsleep" component is used
     sli_sleeptimer_hal_power_manager_integration_init();
 #endif
@@ -223,6 +230,10 @@ sl_status_t sl_power_manager_init(void)
 #if !defined(SL_CATALOG_POWER_MANAGER_NO_DEEPSLEEP_PRESENT)
   // Set the HF minimum offtime in sleeptimer ticks
   high_frequency_min_offtime_tick = sli_power_manager_get_default_high_frequency_minimum_offtime();
+#endif
+
+#if defined(SLI_POWER_MANAGER_ENABLE_SYSTEMVIEW)
+  SEGGER_SYSVIEW_NameMarker(SLI_SYSTEMVIEW_MARKER_ID_SLEEP, "Device Sleep");
 #endif
 
   is_initialized = true;
@@ -281,10 +292,15 @@ __NO_INLINE void sl_power_manager_sleep(void)
 #ifdef SLI_DEVICE_SUPPORTS_EM1P
       requirement_high_accuracy_hf_clock_back_to_zero = false;
 #endif
+
+#if defined(SLI_HFXO_BYPASS_MODE)
+      sli_power_manager_notify_em_transition(current_em, lowest_em);
+#else
       if (is_sleeping_waiting_for_clock_restore == false) {
         // But only notify if we are not in the process of waiting for the HF oscillators restore.
         sli_power_manager_notify_em_transition(current_em, lowest_em);
       }
+#endif
       current_em = lowest_em;           // Keep new active energy mode
     }
 
@@ -313,11 +329,13 @@ __NO_INLINE void sl_power_manager_sleep(void)
     // Apply lowest reachable energy mode
     sli_power_manager_apply_em(current_em);
 
+#if !defined(SLI_HFXO_BYPASS_MODE)
     // In case we are waiting for the restore from an early wake-up,
     // we put back the current EM to the one before the early wake-up to do the next notification correctly.
     if (is_sleeping_waiting_for_clock_restore == true) {
       current_em = waiting_clock_restore_from_em;
     }
+#endif
 
     // Notify consumer of wakeup while interrupts are still off
     // For internal Silicon Labs use only
@@ -325,6 +343,7 @@ __NO_INLINE void sl_power_manager_sleep(void)
 
     primask_state = yield_critical_with_primask(primask_state);
 
+#if !defined(SLI_HFXO_BYPASS_MODE)
     // In case the HF restore was completed from the HFXO ISR,
     // and notification not done elsewhere, do it here
     if (is_restored_from_hfxo_isr_internal == true) {
@@ -334,6 +353,7 @@ __NO_INLINE void sl_power_manager_sleep(void)
         sli_power_manager_notify_em_transition(waiting_clock_restore_from_em, SL_POWER_MANAGER_EM1);
       }
     }
+#endif
 
     // Stop the internal power manager sleeptimer.
     sl_sleeptimer_stop_timer(&clock_wakeup_timer_handle);
@@ -350,11 +370,16 @@ __NO_INLINE void sl_power_manager_sleep(void)
       sli_power_manager_restore_high_freq_accuracy_clk();
       is_hf_x_oscillator_not_preserved = false;
     }
+
+#if defined(SLI_HFXO_BYPASS_MODE)
+    sli_power_manager_is_high_freq_accuracy_clk_ready(true);
+#else
     // If possible, go back to sleep in EM1 while waiting for HF accuracy restore
     while (!sli_power_manager_is_high_freq_accuracy_clk_ready(false)) {
       sli_power_manager_apply_em(SL_POWER_MANAGER_EM1);
       primask_state = yield_critical_with_primask(primask_state);
     }
+#endif
     sli_power_manager_restore_states();
     is_states_saved = false;
   }
@@ -846,6 +871,15 @@ static void evaluate_wakeup(sl_power_manager_em_t to)
 
     case SL_POWER_MANAGER_EM2:
     case SL_POWER_MANAGER_EM3:
+#if defined(SL_CATALOG_POWER_MANAGER_RETENTION_PRESENT)
+      if (sli_power_manager_is_non_em2_peripheral_enabled()) {
+        // If any non-EM2-capable peripheral is enabled, the corresponding MENS register bits will
+        // be set in the MENS registers, which will cause the EM2 to abort and go to EM1 instead.
+        update_em1_requirement(true);
+        requirement_on_em1_added = true;
+        break;
+      }
+#endif
       // Get the time remaining until the next sleeptimer requiring early wake-up
       status = sl_sleeptimer_get_remaining_time_of_first_timer(0, &tick_remaining);
       if (status == SL_STATUS_OK) {
@@ -872,6 +906,17 @@ static void evaluate_wakeup(sl_power_manager_em_t to)
             if (sli_power_manager_is_high_freq_accuracy_clk_used()) {
               hf_accuracy_clk_flag = SLI_SLEEPTIMER_POWER_MANAGER_HF_ACCURACY_CLK_FLAG;
             }
+#if !defined(SL_CATALOG_POWER_MANAGER_NO_DEEPSLEEP_PRESENT)                  \
+            && (SL_SLEEPTIMER_PERIPHERAL == SL_SLEEPTIMER_PERIPHERAL_SYSRTC) \
+            && defined(SL_CATALOG_SYSRTC_PRETRIGGERS_PRESENT)                \
+            && !defined(SLI_HFXO_BYPASS_MODE)
+            uint32_t hfxo_startup_time;
+            sli_clock_manager_get_hfxo_average_startup_time(&hfxo_startup_time);
+            wakeup_delay -= hfxo_startup_time;
+            if (wakeup_delay < 0) {
+              wakeup_delay = 0;
+            }
+#endif
             // Start internal sleeptimer to do the early wake-up.
             sl_sleeptimer_restart_timer(&clock_wakeup_timer_handle,
                                         (tick_remaining - (uint32_t)wakeup_delay),
@@ -993,6 +1038,15 @@ static void clock_restore(void)
       sli_power_manager_restore_high_freq_accuracy_clk();
       is_hf_x_oscillator_not_preserved = false;
     }
+#if defined(SLI_HFXO_BYPASS_MODE)
+    // Do the entire clock restore process in one go as we don't use the HFXO RDY ISR.
+    // The HFXO should be ready because of bypass mode.
+    sli_power_manager_is_high_freq_accuracy_clk_ready(true);
+    sli_power_manager_restore_states();
+    is_states_saved = false;
+    sli_power_manager_notify_em_transition(current_em, SL_POWER_MANAGER_EM1);
+    current_em = SL_POWER_MANAGER_EM1;
+#else
     if (sli_power_manager_is_high_freq_accuracy_clk_ready(false)) {
       // Do the clock restore if the HF oscillator is already ready
       sli_power_manager_restore_states();
@@ -1008,6 +1062,7 @@ static void clock_restore(void)
       // Save current EM to do the right notification later
       waiting_clock_restore_from_em = current_em;
     }
+#endif
   }
 }
 #endif
@@ -1087,6 +1142,22 @@ void sli_hfxo_notify_ready_for_power_manager_from_prs(void)
 #endif
 }
 
+#if !defined(SL_CATALOG_POWER_MANAGER_NO_DEEPSLEEP_PRESENT) && defined(_SILICON_LABS_32B_SERIES_3)
+void sli_clock_manager_notify_hfxo_ready(void)
+{
+  // Complete HF restore and change current Energy mode
+  // The notification will be done once back in the sleep loop
+  if (current_em != SL_POWER_MANAGER_EM0
+      && (is_sleeping_waiting_for_clock_restore == true)) {
+    sli_power_manager_restore_states();
+    is_sleeping_waiting_for_clock_restore = false;
+    is_states_saved = false;
+    is_restored_from_hfxo_isr = true;
+    is_restored_from_hfxo_isr_internal = true;
+  }
+}
+#endif
+
 /***************************************************************************//**
  * Returns current energy mode.
  ******************************************************************************/
@@ -1094,3 +1165,31 @@ sl_power_manager_em_t sli_power_manager_get_current_em(void)
 {
   return current_em;
 }
+
+#if !defined(SL_CATALOG_POWER_MANAGER_RETENTION_PRESENT)
+sl_status_t sl_power_manager_clear_peripheral_dirty_state(const sl_peripheral_t peripheral)
+{
+  (void)peripheral;
+  return SL_STATUS_NOT_SUPPORTED;
+}
+
+bool sl_power_manager_get_peripheral_dirty_state(const sl_peripheral_t peripheral)
+{
+  (void)peripheral;
+  return false;
+}
+
+sl_status_t sl_power_manager_set_peripheral_retention_strategy(const sl_peripheral_t peripheral,
+                                                               uint8_t strategy)
+{
+  (void)peripheral;
+  (void)strategy;
+  return SL_STATUS_NOT_SUPPORTED;
+}
+
+uint8_t sl_power_manager_get_peripheral_retention_strategy(const sl_peripheral_t peripheral)
+{
+  (void)peripheral;
+  return 0xFFu;
+}
+#endif

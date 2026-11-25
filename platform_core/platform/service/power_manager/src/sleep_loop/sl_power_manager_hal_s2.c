@@ -40,6 +40,7 @@
 #include "sl_sleeptimer.h"
 #include "sli_sleeptimer.h"
 #include "sl_power_manager_config.h"
+#include "sli_clock_manager.h"
 
 #if defined(_SILICON_LABS_32B_SERIES_2_CONFIG_2)
 #include "em_iadc.h"
@@ -87,7 +88,11 @@
 #define HFXO_START_UP_TIME_OVERHEAD_LOG2   3
 
 // Default time value in microseconds for the HFXO minimum off time.
+#if defined(SLI_HFXO_BYPASS_MODE)
+#define HFXO_MINIMUM_OFFTIME_DEFAULT_VALUE_US  (0u)
+#else
 #define HFXO_MINIMUM_OFFTIME_DEFAULT_VALUE_US  (400u)
+#endif
 
 #if defined(SL_CATALOG_POWER_MANAGER_DEEPSLEEP_BLOCKING_HFXO_RESTORE_PRESENT)
 // Table size of HFXO wake-up time measurement
@@ -431,7 +436,7 @@ void EMU_EM23PostsleepHook(void)
     // Switch SYSCLK to HFXO to measure restore time
     CMU->SYSCLKCTRL = (CMU->SYSCLKCTRL & ~_CMU_SYSCLKCTRL_CLKSEL_MASK) | cmuSelect_HFXO;
     SystemCoreClockUpdate();
-#else
+#elif !defined(SLI_HFXO_BYPASS_MODE)
     sli_hfxo_manager_begin_startup_measurement();
 
     // Force enable HFXO to measure restore time
@@ -485,7 +490,7 @@ void sli_power_manager_restore_high_freq_accuracy_clk(void)
     // Switch SYSCLK to HFXO to measure restore time
     CMU->SYSCLKCTRL = (CMU->SYSCLKCTRL & ~_CMU_SYSCLKCTRL_CLKSEL_MASK) | cmuSelect_HFXO;
     SystemCoreClockUpdate();
-#else
+#elif !defined(SLI_HFXO_BYPASS_MODE)
     // Start measure HFXO restore time
     sli_hfxo_manager_begin_startup_measurement();
 
@@ -522,14 +527,15 @@ void sli_power_manager_restore_high_freq_accuracy_clk(void)
  ******************************************************************************/
 bool sli_power_manager_is_high_freq_accuracy_clk_ready(bool wait)
 {
+#if defined(SL_CATALOG_POWER_MANAGER_DEEPSLEEP_BLOCKING_HFXO_RESTORE_PRESENT) \
+  || defined(SLI_HFXO_BYPASS_MODE)
+  (void)wait;
+  return true;
+#else
   if (!is_hf_x_oscillator_used) {
     return true;
   }
 
-#if defined(SL_CATALOG_POWER_MANAGER_DEEPSLEEP_BLOCKING_HFXO_RESTORE_PRESENT)
-  (void)wait;
-  return true;
-#else
   return sli_hfxo_manager_is_hfxo_ready(wait);
 #endif
 }
@@ -581,12 +587,11 @@ void sli_power_manager_restore_states(void)
  * Applies energy mode.
  *
  * @param em  Energy mode to apply:
- *            SL_POWER_MANAGER_EM0
  *            SL_POWER_MANAGER_EM1
  *            SL_POWER_MANAGER_EM2
  *
- * @note EMU_EnterEM2() and EMU_EnterEM3() has the parameter 'restore' set to
- *       true in the Power Manager. When set to true, the parameter 'restore'
+ * @note EMU_EnterEM2() has the parameter 'restore' set to true in
+ *       the Power Manager. When set to true, the parameter 'restore'
  *       allows the EMU driver to save and restore oscillators, clocks and
  *       voltage scaling. When the processor returns from EM2 or EM3, its
  *       execution resumes in a clean and stable state.
@@ -598,7 +603,6 @@ void sli_power_manager_apply_em(sl_power_manager_em_t em)
   switch (em) {
     case SL_POWER_MANAGER_EM1:
     case SL_POWER_MANAGER_EM2:
-    case SL_POWER_MANAGER_EM3:
 #if (SL_EMLIB_CORE_ENABLE_INTERRUPT_DISABLED_TIMING == 1)
       // when measuring interrupt disabled time, we don't
       // want to count the time spent in sleep
@@ -638,8 +642,13 @@ void sli_power_manager_apply_em(sl_power_manager_em_t em)
       break;
 
     case SL_POWER_MANAGER_EM2:
-    case SL_POWER_MANAGER_EM3:
+#if defined(SLI_POWER_MANAGER_ENABLE_SYSTEMVIEW)
+      SEGGER_SYSVIEW_MarkStart(SLI_SYSTEMVIEW_MARKER_ID_SLEEP);
+#endif
       EMU_EnterEM2(false);
+#if defined(SLI_POWER_MANAGER_ENABLE_SYSTEMVIEW)
+      SEGGER_SYSVIEW_MarkStop(SLI_SYSTEMVIEW_MARKER_ID_SLEEP);
+#endif
       // Clear the SLEEPDEEP bit after sleep.
       SCB->SCR &= ~SCB_SCR_SLEEPDEEP_Msk;
       break;
@@ -675,7 +684,7 @@ uint32_t sli_power_manager_get_wakeup_process_time_overhead(void)
   if (is_hf_x_oscillator_used) {
 #if defined(SL_CATALOG_POWER_MANAGER_DEEPSLEEP_BLOCKING_HFXO_RESTORE_PRESENT)
     delay = hfxo_wakeup_time_tick;
-#else
+#elif !defined(SLI_HFXO_BYPASS_MODE)
     delay = sli_hfxo_manager_get_startup_time();
 #endif
     delay += delay >> HFXO_START_UP_TIME_OVERHEAD_LOG2;

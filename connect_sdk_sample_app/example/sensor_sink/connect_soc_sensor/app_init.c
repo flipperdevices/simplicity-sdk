@@ -31,11 +31,12 @@
 // -----------------------------------------------------------------------------
 //                                   Includes
 // -----------------------------------------------------------------------------
+#include <inttypes.h>
 #include "sl_component_catalog.h"
 #include "app_log.h"
 #include "sl_app_common.h"
-#ifdef SL_CATALOG_SI70XX_DRIVER_PRESENT
-#include "sl_si70xx.h"
+#if defined(SL_CATALOG_RHT_UNIDRIVER_DRIVER_PRESENT)
+#include "sl_rht_unidriver.h"
 #include "sl_i2cspm_instances.h"
 #endif
 #include "sl_sleeptimer.h"
@@ -74,24 +75,18 @@ extern psa_key_id_t security_key_id;
 ******************************************************************************/
 void emberAfInitCallback(void)
 {
-  uint8_t device_id = 0;
   EmberStatus em_status = EMBER_ERR_FATAL;
 
   // Ensure that psa is initialized correctly
   psa_crypto_init();
 
-#ifdef SL_CATALOG_SI70XX_DRIVER_PRESENT
   // init temperature sensor
-  if (!sl_si70xx_present(sl_i2cspm_sensor, SI7021_ADDR, &device_id)) {
-    // wait a bit before re-trying
-    // the si7021 sensor can take up to 80 ms (25 ms @25 deg C) to start up
-    sl_sleeptimer_delay_millisecond(80);
-    // init temperature sensor (2nd attempt)
-    if (!sl_si70xx_present(sl_i2cspm_sensor, SI7021_ADDR, &device_id)) {
-      app_log_error("Failed to initialize temperature sensor!\n");
-    }
+  #if defined(SL_CATALOG_RHT_UNIDRIVER_DRIVER_PRESENT)
+  sl_status_t status = sl_rht_unidriver_init(sl_i2cspm_sensor);
+  if (SL_STATUS_OK != status) {
+    app_log_error("Temperature sensor initialization error: 0x%08" PRIX32 "\n", status);
   }
-#endif
+  #endif
 
   emberAfAllocateEvent(&report_control, &report_handler);
   // CLI info message
@@ -133,9 +128,9 @@ void emberAfInitCallback(void)
                                 &security_key_id);
 
     if (psa_status == PSA_SUCCESS) {
-      app_log_info("Security key import successful, key id: %lu\n", security_key_id);
+      app_log_info("Security key import successful, key id: %" PRIu32 "\n", security_key_id);
     } else {
-      app_log_info("Security Key import failed: %ld\n", psa_status);
+      app_log_info("Security Key import failed: %" PRId32 "\n", psa_status);
     }
   } else {
     app_log_info("PSA AES key found, using the existing one.\n");
@@ -144,7 +139,7 @@ void emberAfInitCallback(void)
   em_status = emberSetPsaSecurityKey(security_key_id);
 
   em_status = emberNetworkInit();
-  app_log_info("Network status 0x%02X\n", em_status);
+  app_log_info("Network status 0x%02" PRIX8 "\n", em_status);
 
   if (em_status == EMBER_SUCCESS) {
     emberEventControlSetActive(*report_control);

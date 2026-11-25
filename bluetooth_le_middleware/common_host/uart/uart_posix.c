@@ -102,6 +102,13 @@ int32_t uartOpen(void *handle, int8_t *port, uint32_t baudRate,
   return serialHandle;
 }
 
+int32_t uartFinishOpen(void *handle, uint32_t rtsCts)
+{
+  (void)handle;
+  (void)rtsCts;
+  return 0;
+}
+
 void uartFlush(void *handle)
 {
   tcflush(*(int32_t *)handle, TCIOFLUSH);
@@ -411,7 +418,7 @@ static int32_t uartOpenSerial(int8_t *device, uint32_t bps, uint32_t dataBits,
   return serial;
 
   // Failure
-error:
+  error:
   if (serial != -1) {
     close(serial);
   }

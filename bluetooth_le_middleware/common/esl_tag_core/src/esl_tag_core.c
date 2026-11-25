@@ -34,6 +34,7 @@
 #include <stdbool.h>
 #include "sl_core.h"
 #include "em_emu.h"
+#include "em_gpio.h"
 #include "gatt_db.h"
 #include "app_scheduler.h"
 #include "sl_sleeptimer.h"
@@ -1813,7 +1814,7 @@ sl_status_t esl_core_read_absolute_time(uint32_t *time)
     result = sl_sleeptimer_tick64_to_ms(current_tick, &ms64);
 
     if (result == SL_STATUS_OK) {
-      // overflow is allowed, arithmetics will do the trick, anyway:
+      // overflow is allowed, arithmetic will do the trick, anyway:
       *time = (uint32_t)ms64 + esl_tag.time_offset;
     }
   }

@@ -125,14 +125,10 @@ const sl_rail_ieee802154_config_t sRailIeee802154Config = {
         },
     .timings =
         {
-            .idle_to_rx = 100,
-            .tx_to_rx   = 192 - 10,
-            .idle_to_tx = 100,
-#if OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2
-            .rx_to_tx = 256, // accommodate enhanced ACKs
-#else
-            .rx_to_tx = 192,
-#endif
+            .idle_to_rx             = 100,
+            .tx_to_rx               = 192 - 10,
+            .idle_to_tx             = 100,
+            .rx_to_tx               = 192,
             .rxsearch_timeout       = 0,
             .tx_to_rxsearch_timeout = 0,
             .tx_to_tx               = 0,
@@ -228,10 +224,13 @@ exit:
 #ifdef SL_CATALOG_RAIL_UTIL_ANT_DIV_PRESENT
 void sli_ot_radio_interface_init_antenna_config(void)
 {
-    sl_rail_status_t status;
-    sl_rail_util_ant_div_init();
-    status = sl_rail_util_ant_div_update_antenna_config();
-    OT_ASSERT(status == SL_RAIL_STATUS_NO_ERROR);
+    if (sl_rail_util_ant_div_get_rx_antenna_mode() != SL_RAIL_UTIL_ANTENNA_MODE_DISABLED)
+    {
+        sl_rail_status_t status;
+        sl_rail_util_ant_div_init();
+        status = sl_rail_util_ant_div_update_antenna_config();
+        OT_ASSERT(status == SL_RAIL_STATUS_NO_ERROR);
+    }
 }
 #endif // SL_CATALOG_RAIL_UTIL_ANT_DIV_PRESENT
 
@@ -598,12 +597,6 @@ int16_t sli_ot_radio_interface_rail_get_rssi(sl_rail_time_t aWaitTimeoutUs)
     return sl_rail_get_rssi(gRailHandle, aWaitTimeoutUs);
 }
 
-// RAIL timing configuration access
-uint32_t sli_ot_radio_interface_rail_get_rx_to_tx_timing(void)
-{
-    return sRailIeee802154Config.timings.rx_to_tx;
-}
-
 // RAIL configuration
 sl_rail_status_t sli_ot_radio_interface_rail_config_channels(
     const sl_rail_channel_config_t         *aChannels,
@@ -703,6 +696,11 @@ sl_rail_handle_t sli_ot_radio_interface_rail_init(efr32CommonConfig *aCommonConf
     OT_ASSERT(status == SL_RAIL_STATUS_NO_ERROR);
 
 #if (OPENTHREAD_CONFIG_THREAD_VERSION >= OT_THREAD_VERSION_1_2)
+    // Need higher than default rxToTx turnaround time for enhanced ACKs
+    sl_rail_transition_time_t rx_to_enh_ack_tx_us = SLI_OT_IEEE802154_2015_ENH_ACK_TIMING_RX_TO_TX_US;
+    status = sl_rail_ieee802154_set_rx_to_enh_ack_tx(handle, &rx_to_enh_ack_tx_us);
+    OT_ASSERT(status == SL_RAIL_STATUS_NO_ERROR);
+
     // Enhanced Frame Pending
     status = sl_rail_ieee802154_enable_early_frame_pending(handle, true);
     OT_ASSERT(status == SL_RAIL_STATUS_NO_ERROR);
@@ -939,7 +937,7 @@ otError otPlatRadioGetTransmitPower(otInstance *aInstance, int8_t *aPower)
     otEXPECT_ACTION(aPower != nullptr, error = OT_ERROR_INVALID_ARGS);
     // sl_rail_get_tx_power_dbm() returns power in deci-dBm (0.1dBm)
     // Divide by 10 because aPower is supposed be in units dBm
-    *aPower = static_cast<int8_t>(sli_ot_radio_interface_rail_get_tx_power_dbm());
+    *aPower = static_cast<int8_t>(sli_ot_radio_interface_rail_get_tx_power_dbm() / 10);
 
 exit:
     return error;

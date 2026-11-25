@@ -1,7 +1,7 @@
 [options]
 compatibleVersion=ANY
 packageType=sdk
-releaseNotesUrl=https://docs.silabs.com/sisdk-release-notes/2025.12.2/sisdk-release-notes-overview/
-sdkLtsTag=2025.12.2
-sdkLtsTags=['2025.12.2']
+releaseNotesUrl=https://docs.silabs.com/sisdk-release-notes/2026.6.2/sisdk-release-notes-overview/
+sdkLtsTag=2026.6.2
+sdkLtsTags=['2026.6.2']
 subPackage=False

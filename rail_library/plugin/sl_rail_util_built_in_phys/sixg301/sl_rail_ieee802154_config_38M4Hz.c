@@ -2,7 +2,7 @@
  * @brief RAIL Configuration
  * @details
  *   WARNING: Auto-Generated Radio Config  -  DO NOT EDIT
- *   Radio Configurator Version: 2504.4.8
+ *   Radio Configurator Version: 2602.5.2
  *   RAIL Adapter Version: 2.4.33
  *   RAIL Compatibility: 2.x
  *******************************************************************************
@@ -33,7 +33,13 @@
  ******************************************************************************/
 #include "em_device.h"
 #include "sl_rail_ieee802154_config_38M4Hz.h"
+#if defined(__ICCARM__)
+// IAR doesn't support copying const data (in flash) to RAM.
+#undef SL_CODE_CLASSIFY
+#define SL_CODE_CLASSIFY(a, ...) /* no-op */
+#else
 #include "sl_code_classification.h"
+#endif
 
 SL_CODE_CLASSIFY(rail_lib, SL_CODE_CLASS_TIME_CRITICAL)
 static const uint8_t irCalConfig_0[] = {
@@ -78,7 +84,6 @@ SL_CODE_CLASSIFY(rail_lib, SL_CODE_CLASS_TIME_CRITICAL)
 __ALIGNED(4) static const uint8_t stackInfo_4[2] = { 0x05, 0x08 };
 #endif // RADIO_CONFIG_ENABLE_STACK_INFO
 
-SL_CODE_CLASSIFY(rail_lib, SL_CODE_CLASS_TIME_CRITICAL)
 static RAIL_ChannelConfigEntryAttr_t channelConfigEntryAttr_0 = {
 #if RAIL_SUPPORTS_OFDM_PA
   {
@@ -98,7 +103,6 @@ static RAIL_ChannelConfigEntryAttr_t channelConfigEntryAttr_0 = {
 #endif // RAIL_SUPPORTS_OFDM_PA
 };
 
-SL_CODE_CLASSIFY(rail_lib, SL_CODE_CLASS_TIME_CRITICAL)
 static RAIL_ChannelConfigEntryAttr_t channelConfigEntryAttr_1 = {
 #if RAIL_SUPPORTS_OFDM_PA
   {
@@ -321,9 +325,6 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_2Mbps_38M4Hz_modemConfigBase[] = {
   /*    4234 */ 0x00000000UL,
   0x0101423CUL, 0x00000000UL,
   0x01014244UL, 0x00000014UL,
-  0x01034250UL, 0x6D9F7132UL,
-  /*    4254 */ 0xBFA12A81UL,
-  /*    4258 */ 0x19087D26UL,
   0x01024264UL, 0x333F80E1UL,
   /*    4268 */ 0x00000000UL,
   0x01014288UL, 0x00000080UL,
@@ -526,9 +527,6 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_1Mbps_fec_38M4Hz_modemConfigBase[] =
   /*    4234 */ 0x00000000UL,
   0x0101423CUL, 0x00000000UL,
   0x01014244UL, 0x00000014UL,
-  0x01034250UL, 0x6D9F7132UL,
-  /*    4254 */ 0xBFA12A81UL,
-  /*    4258 */ 0x19087D26UL,
   0x01024264UL, 0x333F80E1UL,
   /*    4268 */ 0x00000000UL,
   0x01014288UL, 0x00000080UL,
@@ -1524,7 +1522,7 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_dual_sync_38M4Hz_modemConfig[] = {
   0x0301001CUL, (uint32_t) &phyInfo_0,
   0x03050008UL, 0x0001E201UL,
   /*    000C */ 0x0001E301UL,
-  /*    0010 */ 0x00030017UL,
+  /*    0010 */ 0x0003000AUL,
   /*    0014 */ 0x00000042UL,
   /*    0018 */ 0x00000000UL,
   0x0002400CUL, 0x00148001UL,
@@ -1564,7 +1562,10 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_dual_sync_38M4Hz_modemConfig[] = {
   0x0103421CUL, 0x8000AA00UL,
   /*    4220 */ 0x00000000UL,
   /*    4224 */ 0x40100028UL,
-  0x0101424CUL, 0x04080003UL,
+  0x0104424CUL, 0x04080003UL,
+  /*    4250 */ 0x6D9F7132UL,
+  /*    4254 */ 0xBFA12B21UL,
+  /*    4258 */ 0x19087D26UL,
   0x01014414UL, 0x70196221UL,
   0x01054480UL, 0x000000A7UL,
   /*    4484 */ 0x0000002FUL,
@@ -1622,7 +1623,10 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_high_speed_2Mbps_coherent_38M4Hz_mod
   0x0103421CUL, 0x0000AA00UL,
   /*    4220 */ 0x00000000UL,
   /*    4224 */ 0x00100040UL,
-  0x0101424CUL, 0x04000003UL,
+  0x0104424CUL, 0x04000003UL,
+  /*    4250 */ 0x6D9F7132UL,
+  /*    4254 */ 0xBFA12A81UL,
+  /*    4258 */ 0x19087D26UL,
   0x01014414UL, 0x70196220UL,
   0x01054480UL, 0xAB784E7CUL,
   /*    4484 */ 0x0000002FUL,
@@ -1640,7 +1644,7 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_dual_sync_fec_38M4Hz_modemConfig[] =
   0x0301001CUL, (uint32_t) &phyInfo_0,
   0x03050008UL, 0x0001E201UL,
   /*    000C */ 0x0001E301UL,
-  /*    0010 */ 0x00030017UL,
+  /*    0010 */ 0x0003000AUL,
   /*    0014 */ 0x00000042UL,
   /*    0018 */ 0x00000000UL,
   0x0002400CUL, 0x00148001UL,
@@ -1680,7 +1684,10 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_dual_sync_fec_38M4Hz_modemConfig[] =
   0x0103421CUL, 0x8000AA00UL,
   /*    4220 */ 0x00000000UL,
   /*    4224 */ 0x40100028UL,
-  0x0101424CUL, 0x04080003UL,
+  0x0104424CUL, 0x04080003UL,
+  /*    4250 */ 0x6D9F7132UL,
+  /*    4254 */ 0xBFA12B21UL,
+  /*    4258 */ 0x19087D26UL,
   0x01014414UL, 0x70196221UL,
   0x01054480UL, 0x000000A7UL,
   /*    4484 */ 0x0000002FUL,
@@ -1736,7 +1743,10 @@ const uint32_t sl_rail_ieee802154_phy_2G4Hz_high_speed_1Mbps_fec_38M4Hz_modemCon
   0x0103421CUL, 0x0000AA00UL,
   /*    4220 */ 0x00000000UL,
   /*    4224 */ 0x00100040UL,
-  0x0101424CUL, 0x04000003UL,
+  0x0104424CUL, 0x04000003UL,
+  /*    4250 */ 0x6D9F7132UL,
+  /*    4254 */ 0xBFA12A81UL,
+  /*    4258 */ 0x19087D26UL,
   0x01014414UL, 0x70196220UL,
   0x01054480UL, 0x5487B183UL,
   /*    4484 */ 0x0000002FUL,

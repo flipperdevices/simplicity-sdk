@@ -280,6 +280,10 @@ NcpBase::NcpBase(Instance *aInstance)
     , mDiscoveryScanEnableFiltering(false)
     , mDiscoveryScanPanId(0xffff)
     , mUpdateChangedPropsTask(*aInstance, NcpBase::UpdateChangedProps)
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_NAT64_BORDER_ROUTING_ENABLE && \
+    OPENTHREAD_CONFIG_NAT64_FAVORED_PREFIX_NOTIFICATION_ENABLE
+    , mNotifyNat64FavoredPrefixTask(*aInstance, NcpBase::HandleNotifyNat64FavoredPrefixTask)
+#endif
     , mThreadChangedFlags(0)
     , mHostPowerState(SPINEL_HOST_POWER_STATE_ONLINE)
     , mHostPowerReplyFrameTag(Spinel::Buffer::kInvalidTag)
@@ -298,7 +302,7 @@ NcpBase::NcpBase(Instance *aInstance)
 #if OPENTHREAD_CONFIG_TMF_NETDATA_SERVICE_ENABLE
     , mAllowLocalServerDataChange(false)
 #endif
-#if OPENTHREAD_FTD
+#if OPENTHREAD_FTD && OPENTHREAD_CONFIG_REFERENCE_DEVICE_ENABLE
     , mPreferredRouteId(0)
 #endif
     , mCurCommandIid(0)
@@ -327,6 +331,12 @@ NcpBase::NcpBase(Instance *aInstance)
 #endif
 #if OPENTHREAD_CONFIG_NCP_DNSSD_ENABLE && OPENTHREAD_CONFIG_PLATFORM_DNSSD_ENABLE
     , mDnssdState(OT_PLAT_DNSSD_STOPPED)
+#endif
+#if OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE
+    , mDnsUpstreamAvailable(false)
+#endif
+#if OPENTHREAD_CONFIG_DNS_UPSTREAM_QUERY_ENABLE && OPENTHREAD_CONFIG_BORDER_ROUTING_ENABLE
+    , mDnsUpstreamRdnssCallbackRegistered(false)
 #endif
 #endif
 #if OPENTHREAD_CONFIG_DIAG_ENABLE
@@ -383,7 +393,7 @@ NcpBase::NcpBase(Instance *aInstance)
     otSrpClientSetCallback(mInstance, HandleSrpClientCallback, this);
 #endif
 #if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
-    otTrelSetStateChangeCallback(mInstance, HandleTrelStateChange, this);
+    otTrelSetStateChangedCallback(mInstance, &NcpBase::HandleTrelStateChanged, this);
 #endif
 #endif // OPENTHREAD_MTD || OPENTHREAD_FTD
 #if OPENTHREAD_CONFIG_DIAG_ENABLE
@@ -2592,7 +2602,7 @@ template <> otError NcpBase::HandlePropertyGet<SPINEL_PROP_DEBUG_TEST_WATCHDOG>(
 
 template <> otError NcpBase::HandlePropertyGet<SPINEL_PROP_DEBUG_NCP_LOG_LEVEL>(void)
 {
-    return mEncoder.WriteUint8(ConvertLogLevel(otLoggingGetLevel()));
+    return mEncoder.WriteUint8(ConvertLogLevel(otGetLogLevel(mInstance)));
 }
 
 #if OPENTHREAD_CONFIG_LOG_LEVEL_DYNAMIC_ENABLE
@@ -2636,7 +2646,7 @@ template <> otError NcpBase::HandlePropertySet<SPINEL_PROP_DEBUG_NCP_LOG_LEVEL>(
         ExitNow(error = OT_ERROR_INVALID_ARGS);
     }
 
-    IgnoreError(otLoggingSetLevel(logLevel));
+    IgnoreError(otSetLogLevel(mInstance, logLevel));
 
 exit:
     return error;
@@ -2850,6 +2860,22 @@ otError otNcpStreamWrite(int aStreamId, const uint8_t *aDataPtr, int aDataLen)
 
 #if (OPENTHREAD_CONFIG_LOG_OUTPUT == OPENTHREAD_CONFIG_LOG_OUTPUT_APP)
 
+#if OPENTHREAD_CONFIG_LOG_INSTANCE_AWARE_API_ENABLE
+
+extern "C" void otPlatLogOutput(otInstance *aInstance, otLogLevel aLogLevel, const char *aLogLine)
+{
+    OT_UNUSED_VARIABLE(aInstance);
+
+    ot::Ncp::NcpBase *ncp = ot::Ncp::NcpBase::GetNcpInstance();
+
+    if (ncp != nullptr)
+    {
+        ncp->Log(aLogLevel, OT_LOG_REGION_CORE, aLogLine);
+    }
+}
+
+#else
+
 extern "C" void otPlatLog(otLogLevel aLogLevel, otLogRegion aLogRegion, const char *aFormat, ...)
 {
     va_list           args;
@@ -2868,5 +2894,7 @@ extern "C" void otPlatLog(otLogLevel aLogLevel, otLogRegion aLogRegion, const ch
 
     va_end(args);
 }
+
+#endif // OPENTHREAD_CONFIG_LOG_INSTANCE_AWARE_API_ENABLE
 
 #endif // (OPENTHREAD_CONFIG_LOG_OUTPUT == OPENTHREAD_CONFIG_LOG_OUTPUT_APP)
